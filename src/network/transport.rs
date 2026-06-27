@@ -1,3 +1,4 @@
+use crate::network::signaling::SignalCommand as SignalingCommand;
 use crate::network::signaling::SignalEvent;
 use crate::protocol::ChannelMessage;
 use anyhow::Result;
@@ -39,13 +40,15 @@ pub(crate) enum SignalCommand {
     HandleOffer(String, String),
     HandleAnswer(String, String),
     HandleIceCandidate(String, String, String, u16),
+    SendMessage(ChannelMessage),
     Disconnect,
 }
 
 impl Transport {
-    pub async fn new(
+    pub(crate) async fn new(
         peer_id: &str,
         stun_addr: &str,
+        signaling_tx: Option<mpsc::UnboundedSender<SignalingCommand>>,
     ) -> Result<(Self, mpsc::UnboundedReceiver<TransportEvent>)> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (signal_tx, mut signal_rx) = mpsc::unbounded_channel::<SignalCommand>();
@@ -74,6 +77,8 @@ impl Transport {
         let data_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>> =
             Arc::new(Mutex::new(None));
         let dc_store = data_channel.clone();
+
+        let current_peer: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
         let event_tx_clone = event_tx.clone();
         pc.on_peer_connection_state_change(Box::new(move |state| {
@@ -117,18 +122,43 @@ impl Transport {
             })
         }));
 
+        let signaling_tx_for_ice = signaling_tx.clone();
+        let current_peer_for_ice = current_peer.clone();
+        pc.on_ice_candidate(Box::new(move |candidate| {
+            let sig_tx = signaling_tx_for_ice.clone();
+            let cp = current_peer_for_ice.clone();
+            Box::pin(async move {
+                if let Some(c) = candidate {
+                    if let Some(ref tx) = sig_tx {
+                        let target = cp.lock().await.clone().unwrap_or_default();
+                        let candidate_str = c.to_string();
+                        let _ = tx.send(SignalingCommand::SendIceCandidate {
+                            to: target,
+                            candidate: candidate_str,
+                            sdp_mid: "0".to_string(),
+                            sdp_mline_index: 0,
+                        });
+                    }
+                }
+            })
+        }));
+
         let event_tx_for_signal = event_tx.clone();
         let signal_tx_for_spawn = signal_tx.clone();
         let dc_for_spawn = data_channel.clone();
+        let current_peer_for_spawn = current_peer.clone();
+        let signaling_tx_for_spawn = signaling_tx.clone();
 
         tokio::spawn(async move {
             while let Some(cmd) = signal_rx.recv().await {
                 match cmd {
                     SignalCommand::CreateOffer(target) => {
+                        *current_peer_for_spawn.lock().await = Some(target.clone());
                         match create_and_send_offer(
                             &pc_clone,
                             &target,
                             &signal_tx_for_spawn,
+                            &signaling_tx_for_spawn,
                             &dc_for_spawn,
                             &event_tx_for_signal,
                         )
@@ -142,11 +172,13 @@ impl Transport {
                         }
                     }
                     SignalCommand::HandleOffer(from, sdp) => {
+                        *current_peer_for_spawn.lock().await = Some(from.clone());
                         match handle_incoming_offer(
                             &pc_clone,
                             &from,
                             &sdp,
-                            &signal_tx_for_spawn,
+                            &signaling_tx_for_spawn,
+                            &event_tx_for_signal,
                         )
                         .await
                         {
@@ -179,6 +211,14 @@ impl Transport {
                         if let Err(e) = pc_clone.add_ice_candidate(c).await {
                             let _ = event_tx_for_signal
                                 .send(TransportEvent::Error { msg: e.to_string() });
+                        }
+                    }
+                    SignalCommand::SendMessage(msg) => {
+                        let dc = dc_for_spawn.lock().await;
+                        if let Some(dc) = dc.as_ref() {
+                            if let Ok(data) = bincode::serialize(&msg) {
+                                let _ = dc.send(&bytes::Bytes::from(data)).await;
+                            }
                         }
                     }
                     SignalCommand::Disconnect => {
@@ -262,7 +302,8 @@ impl Transport {
 async fn create_and_send_offer(
     pc: &RTCPeerConnection,
     target: &str,
-    signal_tx: &mpsc::UnboundedSender<SignalCommand>,
+    _signal_tx: &mpsc::UnboundedSender<SignalCommand>,
+    signaling_tx: &Option<mpsc::UnboundedSender<SignalingCommand>>,
     dc_store: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
     event_tx: &mpsc::UnboundedSender<TransportEvent>,
 ) -> Result<()> {
@@ -283,7 +324,12 @@ async fn create_and_send_offer(
     pc.set_local_description(offer.clone()).await?;
 
     if let Some(desc) = pc.local_description().await {
-        let _ = signal_tx.send(SignalCommand::HandleOffer(target.to_string(), desc.sdp));
+        if let Some(ref sig_tx) = signaling_tx {
+            let _ = sig_tx.send(SignalingCommand::SendOffer {
+                to: target.to_string(),
+                sdp: desc.sdp,
+            });
+        }
     }
 
     Ok(())
@@ -293,7 +339,8 @@ async fn handle_incoming_offer(
     pc: &RTCPeerConnection,
     _from: &str,
     sdp: &str,
-    signal_tx: &mpsc::UnboundedSender<SignalCommand>,
+    signaling_tx: &Option<mpsc::UnboundedSender<SignalingCommand>>,
+    _event_tx: &mpsc::UnboundedSender<TransportEvent>,
 ) -> Result<()> {
     let desc = RTCSessionDescription::offer(sdp.to_string())?;
     pc.set_remote_description(desc).await?;
@@ -302,7 +349,12 @@ async fn handle_incoming_offer(
     pc.set_local_description(answer.clone()).await?;
 
     if let Some(desc) = pc.local_description().await {
-        let _ = signal_tx.send(SignalCommand::HandleOffer(String::new(), desc.sdp));
+        if let Some(ref sig_tx) = signaling_tx {
+            let _ = sig_tx.send(SignalingCommand::SendAnswer {
+                to: _from.to_string(),
+                sdp: desc.sdp,
+            });
+        }
     }
 
     Ok(())

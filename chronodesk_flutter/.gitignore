@@ -1,0 +1,17 @@
+# Flutter auto-generated
+.metadata
+
+# Build output
+build/
+android/
+ios/
+
+# Dart
+.dart_tool/
+.pub/
+pubspec.lock
+
+# IDE
+.idea/
+.vscode/
+*.iml

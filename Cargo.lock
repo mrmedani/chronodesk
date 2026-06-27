@@ -708,6 +708,7 @@ dependencies = [
  "ffmpeg-next",
  "futures",
  "image",
+ "libc",
  "ring",
  "serde",
  "serde_json",

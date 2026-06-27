@@ -26,6 +26,7 @@ dashmap = "6"
 tokio-tungstenite = "0.24"
 enigo = "0.2"
 bincode = "1"
+libc = "0.2"
 
 [features]
 default = []
