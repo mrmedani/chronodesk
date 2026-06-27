@@ -16,8 +16,7 @@ clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 bytes = "1"
 
-# WebRTC transport
-# webrtc = "0.17"   # uncomment when ready to implement
+webrtc = "0.17"
 # ffmpeg-next = "8" # uncomment when ready to implement
 ring = "0.17"
 xcap = "0.9"
