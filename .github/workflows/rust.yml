@@ -5,7 +5,6 @@ on:
     branches: [master, main, "dev/**"]
     paths-ignore:
       - "**.md"
-      - "chronodesk_flutter/**"
       - "docs/**"
   pull_request:
     branches: [master, main]
@@ -59,16 +58,29 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build (default)
+      - name: Build binary
         run: cargo build --release
 
-      - name: Upload binary
+      - name: Build library (DLL/SO)
+        run: cargo build --release --lib
+
+      - name: Upload binary artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chronodesk-${{ matrix.os }}
+          name: chronodesk-bin-${{ matrix.os }}
           path: |
             target/release/chronodesk${{ matrix.os == 'windows-latest' && '.exe' || '' }}
             target/release/signaling-server${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          if-no-files-found: warn
+
+      - name: Upload library artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronodesk-lib-${{ matrix.os }}
+          path: |
+            target/release/libchronodesk.so
+            target/release/libchronodesk.dylib
+            target/release/chronodesk.dll
           if-no-files-found: warn
 
   test:
@@ -86,3 +98,20 @@ jobs:
 
       - name: Run tests
         run: cargo test --all-targets
+
+  flutter:
+    name: Flutter Analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter pub get
+        run: cd chronodesk_flutter && flutter pub get
+
+      - name: Flutter analyze
+        run: cd chronodesk_flutter && flutter analyze

@@ -1,20 +1,16 @@
 <div align="center">
   <h1>CHRONODESK</h1>
-  <p><strong>Open-source remote desktop — a fast, secure, self-hosted alternative to AnyDesk &amp; TeamViewer</strong></p>
+  <p><strong>Open-source remote desktop — a fast, secure, self-hosted alternative to AnyDesk &amp; RustDesk</strong></p>
 
-  <!-- Badges -->
   <p>
     <a href="https://github.com/mrmedani/chronodesk/actions"><img src="https://img.shields.io/github/actions/workflow/status/mrmedani/chronodesk/rust.yml?branch=master&logo=github&label=build" alt="Build Status" /></a>
-    <a href="https://crates.io/crates/chronodesk"><img src="https://img.shields.io/crates/v/chronodesk?logo=rust" alt="Crates.io" /></a>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPLv3-blue.svg" alt="License" /></a>
     <a href="https://github.com/mrmedani/chronodesk/releases"><img src="https://img.shields.io/github/v/release/mrmedani/chronodesk?include_prereleases&logo=github" alt="Release" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPLv3-blue.svg" alt="License" /></a>
     <a href="https://github.com/mrmedani/chronodesk/issues"><img src="https://img.shields.io/github/issues/mrmedani/chronodesk?logo=github" alt="Issues" /></a>
-    <a href="https://github.com/mrmedani/chronodesk/pulls"><img src="https://img.shields.io/github/issues-pr/mrmedani/chronodesk?logo=github" alt="PRs" /></a>
     <br/>
     <img src="https://img.shields.io/badge/Rust-1.83%2B-orange?logo=rust" alt="Rust" />
     <img src="https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter" alt="Flutter" />
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" />
-    <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" />
   </p>
 </div>
 
@@ -29,45 +25,64 @@
 | :signal_strength: Signaling server | Done | Self-hosted WebSocket broker for peer discovery & SDP relay |
 | :video_camera: Video encoding | Done | H.264 (NVENC/QSV/AMF) with FFmpeg or fallback JPEG |
 | :mouse: Input injection | Done | Mouse move/click, keyboard via `enigo` (Windows/macOS/Linux) |
+| :art: Flutter UI | Done | Single-screen AnyDesk-like UX — peer ID, connect field, remote view, accept/deny dialog |
+| :link: Rust ↔ Flutter bridge | Done | Raw C FFI with event polling, frame buffer, accept/deny flow |
+| :id: ID system | Done | Persistent 9-digit peer ID stored in `%APPDATA%/chronodesk` |
 | :locked: Encryption | Ready | AEAD via `ring` (chacha20-poly1305) — wired, key exchange pending |
 | :clipboard: File transfer | Planning | Planned over WebRTC data channel |
 | :globe_with_meridians: Remote audio | Planning | Planned via WebRTC audio tracks |
-| :iphone: Cross-platform UI | In progress | Flutter front-end with `flutter_rust_bridge` |
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     CHRONODESK                           │
-│                                                          │
-│  ┌──────────────┐           WebRTC           ┌──────────┐│
-│  │  Host         │◄────── SCTP/DTLS ───────►│  Client  ││
-│  │  (Rust Core)  │                           │(Rust+Flut)│
-│  └───┬───┬───┬──┘                           └────┬──┬───┘
-│      │   │   │                                    │  │
-│      │   │   └──► Screen Capture (xcap)          │  │
-│      │   │       └──► Video Encode (ffmpeg/JPEG) │  │
-│      │   │           └──► Send via DataChannel   │  │
-│      │   │                                        │  │
-│      │   └──────────► Receive Input Events ◄──────┘  │
-│      │                                                │
-│      └──────────────────► WebSocket Signaling ◄───────┘
-│                                │
-│                     ┌──────────┴──────────┐
-│                     │  Signaling Server   │
-│                     │  (WebSocket Broker) │
-│                     └─────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    CHRONODESK (Flutter App)                    │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │  Flutter UI  (home_screen.dart)                          │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐   │  │
+│  │  │ Peer ID  │  │ Connect  │  │ Remote Screen        │   │  │
+│  │  │ Display  │  │  Field   │  │ (RawImage from RGBA) │   │  │
+│  │  └──────────┘  └──────────┘  └──────────────────────┘   │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                           │ FFI (C ABI)                        │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │  Rust Engine (chronodesk.dll)                            │  │
+│  │  ┌────────────┐  ┌──────────┐  ┌────────────────────┐   │  │
+│  │  │  Event     │  │  Frame   │  │  WebRTC Transport  │   │  │
+│  │  │  Queue     │  │  Buffer  │  │  (webrtc crate)    │   │  │
+│  │  └────────────┘  └──────────┘  └────────────────────┘   │  │
+│  │  ┌────────────┐  ┌──────────┐  ┌────────────────────┐   │  │
+│  │  │  Screen    │  │  Video   │  │  Signaling Client  │   │  │
+│  │  │  Capture   │  │  Encoder │  │  (WebSocket)       │   │  │
+│  │  └────────────┘  └──────────┘  └────────────────────┘   │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                           │ WebSocket                          │
+└───────────────────────────┼──────────────────────────────────┘
+                            │
+                    ┌───────┴────────┐
+                    │ Signaling Srv  │
+                    │ ws://:21116/ws │
+                    └────────────────┘
+
+                        WebRTC P2P
+                    ┌─────────────────┐
+                    │  ICE / STUN     │
+                    │  DTLS / SCTP    │
+                    │  Data Channel   │
+                    └─────────────────┘
 ```
 
 **Protocol flow:**
-1. Peers register with the signaling server via WebSocket
-2. Host creates an SDP offer, sent via signaling server to the client
-3. Client creates an SDP answer, ICE candidates are exchanged
-4. Direct P2P WebRTC connection established
-5. Screen frames flow Host → Client over data channel
-6. Input events flow Client → Host over data channel
+1. App starts → Rust loads peer ID (persistent 9-digit), connects to signaling server
+2. Enter remote ID → create WebRTC offer → send via signaling server
+3. Remote receives connection request → accept/deny dialog shown
+4. On accept → WebRTC handshake completes → P2P data channel opens
+5. Host captures screen, encodes frames, sends over data channel
+6. Viewer receives frames, decodes to RGBA, renders via Flutter `RawImage`
+7. Input events flow Viewer → Host over data channel
 
 ---
 
@@ -76,81 +91,71 @@
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) 1.83+ (`rustup install stable`)
-- [Flutter](https://flutter.dev) 3.x (for the UI client)
-- **Optional:** [FFmpeg](https://ffmpeg.org/) shared libraries (for H.264 hardware encoding)
+- [Flutter](https://flutter.dev) 3.x (for the UI)
+- Visual Studio Build Tools (Windows) or CMake (Linux/macOS)
 
 ### 1. Start the Signaling Server
 
 ```bash
-cargo run --bin signaling-server -- --bind 0.0.0.0:21116
+cargo run --bin signaling-server
 ```
 
-The server listens for WebSocket connections at `ws://<host>:21116/ws`.
+The server listens at `ws://<host>:21116/ws`.
 
-### 2. Host Mode (share your screen)
+### 2. Build & Run the Flutter App
 
 ```bash
-cargo run -- --peer-id mydesk
+# Build the Rust DLL
+cargo build --lib
+
+# Copy it to the Flutter release directory
+copy target\debug\chronodesk.dll chronodesk_flutter\build\windows\x64\runner\Release\
+
+# Build & run Flutter
+cd chronodesk_flutter
+flutter pub get
+flutter run -d windows
 ```
 
-Or with H.264 hardware encoding (requires FFmpeg):
+The app launches with your 9-digit peer ID. Enter another peer's ID and click **Connect**.
 
-```bash
-cargo run --features ffmpeg -- --peer-id mydesk
-```
-
-### 3. Client Mode (connect to a host)
-
-```bash
-cargo run -- --connect mydesk
-```
-
-### CLI Options
-
-```
-cargo run -- [FLAGS] [OPTIONS]
-
-Modes:
-  host        Share your screen (default when --peer-id is set)
-  client      Connect to a remote host (use --connect)
-  server      Run the signaling server (use cargo run --bin signaling-server)
-
-Options:
-  --peer-id <ID>        Set your peer identifier (auto-generated if omitted)
-  --connect <ID>        Connect to a remote peer
-  --signaling <ADDR>    Signaling server address [default: 127.0.0.1:21116]
-  --bind <ADDR>         Bind address for signaling server [default: 0.0.0.0:21116]
-```
+> **macOS / Linux**: Replace `.dll` with `.dylib` / `.so` and adjust paths accordingly.
 
 ---
 
 ## Building from Source
 
-### Rust Engine
+### Rust Engine (DLL)
 
 ```bash
-# Debug build
-cargo build
+# Debug DLL
+cargo build --lib
 
-# Release build
-cargo build --release
+# Release DLL
+cargo build --release --lib
 
 # With FFmpeg H.264 support
-cargo build --release --features ffmpeg
+cargo build --release --features ffmpeg --lib
 ```
+
+Output: `target/debug/chronodesk.dll` (or `.so`/`.dylib`)
 
 ### Flutter UI
 
 ```bash
 cd chronodesk_flutter
 flutter pub get
-flutter build windows   # or macos / linux / ios / android
+flutter build windows   # or macos / linux
 ```
 
-### Generate FFI Bindings
+### Standalone Binaries
 
 ```bash
-flutter_rust_bridge_codegen generate
+# Signaling server
+cargo build --bin signaling-server
+
+# CLI engine (legacy host/client modes)
+cargo build
 ```
 
 ---
@@ -160,28 +165,33 @@ flutter_rust_bridge_codegen generate
 ```
 chronodesk/
 ├── src/                          # Rust core engine
-│   ├── main.rs                   # CLI entrypoint
 │   ├── lib.rs                    # Library exports
+│   ├── ffi.rs                    # C FFI exports (ID system, event queue, frame buffer)
 │   ├── bin/signaling.rs          # WebSocket signaling server
 │   ├── capture.rs                # Screen capture (xcap DXGI)
 │   ├── crypto.rs                 # AEAD encryption (ring)
 │   ├── input.rs                  # Input injection (enigo)
 │   ├── video.rs                  # Video encoding (ffmpeg/JPEG)
 │   ├── protocol.rs               # Data channel message protocol
-│   ├── ffi.rs                    # C FFI exports for Flutter
+│   ├── main.rs                   # CLI entrypoint (legacy)
 │   └── network/
 │       ├── transport.rs          # WebRTC PeerConnection
-│       └── signaling.rs          # Signaling client
-├── chronodesk_flutter/           # Cross-platform Flutter UI
-│   └── lib/
-│       ├── main.dart
-│       ├── src/
-│       │   ├── app.dart
-│       │   ├── screens/          # Home, Host, Viewer screens
-│       │   └── ffi/native.dart   # Rust FFI bindings
+│       └── signaling.rs          # Signaling client (WebSocket)
+├── chronodesk_flutter/           # Flutter UI
+│   ├── lib/
+│   │   ├── main.dart
+│   │   └── src/
+│   │       ├── app.dart          # App root (single screen)
+│   │       ├── screens/
+│   │       │   └── home_screen.dart  # AnyDesk-like single-screen UX
+│   │       └── ffi/
+│   │           └── native.dart   # Raw C FFI bindings
+│   ├── windows/                  # Windows runner
+│   └── pubspec.yaml
 ├── server/                       # Server infrastructure (future)
-├── docs/                         # Documentation (future)
-└── build/                        # Build scripts
+├── docs/                         # Documentation
+├── .github/                      # CI/CD workflows
+└── Dockerfile                    # Signaling server container
 ```
 
 ---
@@ -197,7 +207,7 @@ chronodesk/
 | Input injection | **enigo** — cross-platform input simulation |
 | Encryption | **ring** — AEAD (ChaCha20-Poly1305) |
 | UI | **Flutter** — Material Design 3, native performance |
-| Bridge | **flutter_rust_bridge** — zero-copy FFI |
+| Bridge | **Raw C FFI** — event polling, RGBA frame buffer, JSON event queue |
 
 ---
 
@@ -206,20 +216,21 @@ chronodesk/
 - [x] Core P2P connectivity & signaling
 - [x] Screen capture & video encoding
 - [x] Input injection
+- [x] Flutter UI with remote screen viewer
+- [x] Rust ↔ Flutter FFI bridge with event system
 - [ ] End-to-end encryption (key exchange)
-- [ ] Flutter UI with remote screen viewer
 - [ ] File transfer over data channel
 - [ ] Audio streaming
 - [ ] Clipboard sync
 - [ ] TURN server for restrictive NATs
-- [ ] Headless mode for headless servers
+- [ ] Headless mode for servers
 - [ ] Mobile clients (iOS/Android)
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feat/amazing-feature`)
@@ -231,23 +242,18 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ## Security
 
-Found a vulnerability? Please read [SECURITY.md](SECURITY.md) and report responsibly.
+Found a vulnerability? Read [SECURITY.md](SECURITY.md) and report responsibly.
 
 ---
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
-
-The AGPL-3.0 ensures that:
-- The source code remains open
-- Modifications must be shared when providing network services
-- Commercial use is permitted if you comply with the license terms
+This project is licensed under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
-  <sub>Built with ❤️ using Rust &amp; Flutter</sub>
+  <sub>Built with Rust &amp; Flutter</sub>
   <br/>
   <sub>© 2026 CHRONODESK Contributors</sub>
 </div>

@@ -33,14 +33,21 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release
+      - name: Build release binaries
         run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Build release library
+        run: cargo build --release --target ${{ matrix.target }} --lib
+
       - name: Package binaries
+        shell: bash
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/chronodesk${{ matrix.ext }} dist/
-          cp target/${{ matrix.target }}/release/signaling-server${{ matrix.ext }} dist/
+          cp target/${{ matrix.target }}/release/chronodesk${{ matrix.ext }} dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/signaling-server${{ matrix.ext }} dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/chronodesk.dll dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/libchronodesk.so dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/libchronodesk.dylib dist/ 2>/dev/null || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -48,9 +55,43 @@ jobs:
           name: chronodesk-${{ matrix.target }}
           path: dist/*
 
+  flutter-build:
+    name: Flutter Build (Windows)
+    runs-on: windows-latest
+    needs: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Download Rust DLL
+        uses: actions/download-artifact@v4
+        with:
+          name: chronodesk-x86_64-pc-windows-msvc
+          path: dll
+
+      - name: Build Flutter
+        run: |
+          cd chronodesk_flutter
+          flutter pub get
+          flutter build windows --release
+
+      - name: Copy DLL to output
+        run: |
+          copy dll\chronodesk.dll chronodesk_flutter\build\windows\x64\runner\Release\
+
+      - name: Upload Flutter artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronodesk-flutter-windows
+          path: chronodesk_flutter\build\windows\x64\runner\Release\
+
   publish:
     name: Create Release
-    needs: release
+    needs: [release, flutter-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -63,7 +104,7 @@ jobs:
       - name: Generate checksums
         run: |
           for dir in chronodesk-*/; do
-            (cd "$dir" && sha256sum * > ../"${dir%/}.sha256")
+            (cd "$dir" && sha256sum * > "../${dir%/}.sha256")
           done
 
       - name: Create GitHub Release
