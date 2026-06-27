@@ -17,13 +17,19 @@ futures = "0.3"
 bytes = "1"
 
 webrtc = "0.17"
-# ffmpeg-next = "8" # uncomment when ready to implement
+ffmpeg-next = { version = "8", optional = true }
 ring = "0.17"
 xcap = "0.9"
 image = "0.25"
 uuid = { version = "1", features = ["v4"] }
 dashmap = "6"
 tokio-tungstenite = "0.24"
+enigo = "0.2"
+bincode = "1"
+
+[features]
+default = []
+ffmpeg = ["ffmpeg-next"]
 
 [lib]
 crate-type = ["cdylib", "staticlib"]

@@ -1,11 +1,13 @@
-use crate::capture::CapturedFrame;
 use crate::network::signaling::SignalEvent;
+use crate::protocol::ChannelMessage;
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::APIBuilder;
+use webrtc::data_channel::RTCDataChannel;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::interceptor::registry::Registry;
@@ -17,18 +19,22 @@ use webrtc::peer_connection::RTCPeerConnection;
 pub enum TransportEvent {
     Connected { peer_id: String },
     Disconnected { peer_id: String },
-    DataReceived { data: Vec<u8> },
+    MessageReceived { msg: ChannelMessage },
     Error { msg: String },
 }
 
 pub struct Transport {
     peer_id: String,
+    #[allow(dead_code)]
     pc: Arc<RTCPeerConnection>,
+    #[allow(dead_code)]
     event_tx: mpsc::UnboundedSender<TransportEvent>,
     signal_tx: mpsc::UnboundedSender<SignalCommand>,
+    data_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
 }
 
-enum SignalCommand {
+#[allow(dead_code)]
+pub(crate) enum SignalCommand {
     CreateOffer(String),
     HandleOffer(String, String),
     HandleAnswer(String, String),
@@ -65,6 +71,9 @@ impl Transport {
 
         let pc = Arc::new(api.new_peer_connection(config).await?);
         let pc_clone = pc.clone();
+        let data_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>> =
+            Arc::new(Mutex::new(None));
+        let dc_store = data_channel.clone();
 
         let event_tx_clone = event_tx.clone();
         pc.on_peer_connection_state_change(Box::new(move |state| {
@@ -88,15 +97,43 @@ impl Transport {
             })
         }));
 
+        let event_tx_dc = event_tx.clone();
+        pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
+            let tx = event_tx_dc.clone();
+            let dc_store = dc_store.clone();
+            Box::pin(async move {
+                *dc_store.lock().await = Some(dc.clone());
+                let tx2 = tx.clone();
+                dc.on_message(Box::new(move |msg| {
+                    let tx = tx2.clone();
+                    Box::pin(async move {
+                        if let Ok(cmsg) =
+                            bincode::deserialize::<ChannelMessage>(&msg.data)
+                        {
+                            let _ = tx.send(TransportEvent::MessageReceived { msg: cmsg });
+                        }
+                    })
+                }));
+            })
+        }));
+
         let event_tx_for_signal = event_tx.clone();
-        let self_signal_tx = signal_tx.clone();
         let signal_tx_for_spawn = signal_tx.clone();
+        let dc_for_spawn = data_channel.clone();
 
         tokio::spawn(async move {
             while let Some(cmd) = signal_rx.recv().await {
                 match cmd {
                     SignalCommand::CreateOffer(target) => {
-                        match create_and_send_offer(&pc_clone, &target, &signal_tx_for_spawn).await {
+                        match create_and_send_offer(
+                            &pc_clone,
+                            &target,
+                            &signal_tx_for_spawn,
+                            &dc_for_spawn,
+                            &event_tx_for_signal,
+                        )
+                        .await
+                        {
                             Ok(_) => {}
                             Err(e) => {
                                 let _ = event_tx_for_signal
@@ -105,7 +142,14 @@ impl Transport {
                         }
                     }
                     SignalCommand::HandleOffer(from, sdp) => {
-                        match handle_incoming_offer(&pc_clone, &from, &sdp, &signal_tx_for_spawn).await {
+                        match handle_incoming_offer(
+                            &pc_clone,
+                            &from,
+                            &sdp,
+                            &signal_tx_for_spawn,
+                        )
+                        .await
+                        {
                             Ok(_) => {}
                             Err(e) => {
                                 let _ = event_tx_for_signal
@@ -145,17 +189,20 @@ impl Transport {
             }
         });
 
+        let self_signal_tx = signal_tx.clone();
         let transport = Self {
             peer_id: peer_id.to_string(),
             pc,
             event_tx,
             signal_tx: self_signal_tx,
+            data_channel,
         };
 
         Ok((transport, event_rx))
     }
 
-    pub fn signal_tx(&self) -> mpsc::UnboundedSender<SignalCommand> {
+    #[allow(dead_code)]
+    pub(crate) fn signal_tx(&self) -> mpsc::UnboundedSender<SignalCommand> {
         self.signal_tx.clone()
     }
 
@@ -193,12 +240,12 @@ impl Transport {
         }
     }
 
-    pub async fn send_data(&self, data: &[u8]) -> Result<()> {
-        let _ = data;
-        Ok(())
-    }
-
-    pub async fn send_frame(&self, _frame: &CapturedFrame) -> Result<()> {
+    pub async fn send_message(&self, msg: &ChannelMessage) -> Result<()> {
+        let dc = self.data_channel.lock().await;
+        if let Some(dc) = dc.as_ref() {
+            let data = bincode::serialize(msg)?;
+            dc.send(&bytes::Bytes::from(data)).await?;
+        }
         Ok(())
     }
 
@@ -216,8 +263,21 @@ async fn create_and_send_offer(
     pc: &RTCPeerConnection,
     target: &str,
     signal_tx: &mpsc::UnboundedSender<SignalCommand>,
+    dc_store: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
+    event_tx: &mpsc::UnboundedSender<TransportEvent>,
 ) -> Result<()> {
-    let _dc = pc.create_data_channel("chronodesk", None).await?;
+    let dc = pc.create_data_channel("chronodesk", None).await?;
+    *dc_store.lock().await = Some(dc.clone());
+
+    let tx = event_tx.clone();
+    dc.on_message(Box::new(move |msg| {
+        let tx = tx.clone();
+        Box::pin(async move {
+            if let Ok(cmsg) = bincode::deserialize::<ChannelMessage>(&msg.data) {
+                let _ = tx.send(TransportEvent::MessageReceived { msg: cmsg });
+            }
+        })
+    }));
 
     let offer = pc.create_offer(None).await?;
     pc.set_local_description(offer.clone()).await?;

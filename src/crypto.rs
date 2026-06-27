@@ -1,13 +1,15 @@
 use anyhow::Result;
-use ring::aead;
 
 pub struct Crypto {
+    #[allow(dead_code)]
     key: [u8; 32],
+    #[allow(dead_code)]
+    algorithm: &'static str,
 }
 
 impl Crypto {
     pub fn new() -> Self {
-        Self { key: [0u8; 32] }
+        Self { key: [0u8; 32], algorithm: "none" }
     }
 
     pub fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>> {

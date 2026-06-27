@@ -23,7 +23,8 @@ pub enum SignalEvent {
     Error(String),
 }
 
-enum SignalCommand {
+#[allow(dead_code)]
+pub(crate) enum SignalCommand {
     SendOffer { to: String, sdp: String },
     SendAnswer { to: String, sdp: String },
     SendIceCandidate { to: String, candidate: String, sdp_mid: String, sdp_mline_index: u16 },
@@ -33,9 +34,9 @@ enum SignalCommand {
 pub struct SignalingClient {
     server_url: String,
     peer_id: String,
+    cmd_tx: mpsc::UnboundedSender<SignalCommand>,
     event_tx: mpsc::UnboundedSender<SignalEvent>,
     cmd_rx: mpsc::UnboundedReceiver<SignalCommand>,
-    cmd_tx: mpsc::UnboundedSender<SignalCommand>,
 }
 
 impl SignalingClient {
@@ -46,15 +47,16 @@ impl SignalingClient {
             Self {
                 server_url: server_url.to_string(),
                 peer_id: peer_id.to_string(),
+                cmd_tx,
                 event_tx,
                 cmd_rx,
-                cmd_tx,
             },
             event_rx,
         )
     }
 
-    pub fn channel(&self) -> mpsc::UnboundedSender<SignalCommand> {
+    #[allow(dead_code)]
+    pub(crate) fn channel(&self) -> mpsc::UnboundedSender<SignalCommand> {
         self.cmd_tx.clone()
     }
 
