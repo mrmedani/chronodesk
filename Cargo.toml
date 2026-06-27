@@ -20,6 +20,8 @@ bytes = "1"
 # webrtc = "0.17"   # uncomment when ready to implement
 # ffmpeg-next = "8" # uncomment when ready to implement
 ring = "0.17"
+xcap = "0.9"
+image = "0.25"
 uuid = { version = "1", features = ["v4"] }
 dashmap = "6"
 tokio-tungstenite = "0.24"
