@@ -86,21 +86,83 @@ fn jpeg_to_rgba(jpeg: &[u8], _w: usize, _h: usize) -> Vec<u8> {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn chronodesk_init(signaling_addr: *const std::ffi::c_char) {
-    let addr = unsafe { CStr::from_ptr(signaling_addr) }
-        .to_str()
+fn config_path() -> std::path::PathBuf {
+    let path = if cfg!(target_os = "windows") {
+        std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string()) + "\\chronodesk"
+    } else {
+        std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/.chronodesk"
+    };
+    std::path::PathBuf::from(&path).join("config.json")
+}
+
+fn load_config() -> serde_json::Value {
+    let path = config_path();
+    if let Ok(s) = std::fs::read_to_string(&path) {
+        serde_json::from_str(&s).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    }
+}
+
+fn save_config(config: &serde_json::Value) {
+    let path = config_path();
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Ok(s) = serde_json::to_string(config) {
+        let _ = std::fs::write(&path, &s);
+    }
+}
+
+fn get_signaling_addr() -> String {
+    let config = load_config();
+    config
+        .get("signaling_addr")
+        .and_then(|v| v.as_str())
         .unwrap_or("127.0.0.1:21116")
-        .to_owned();
+        .to_string()
+}
+
+#[no_mangle]
+pub extern "C" fn chronodesk_init() {
+    let addr = get_signaling_addr();
     let id = load_or_create_id();
     {
         let mut s = state().lock().unwrap();
         s.peer_id = id.clone();
     }
-    push_event(&format!(r#"{{"type":"init","peer_id":"{}"}}"#, id));
+    push_event(&format!(r#"{{"type":"init","peer_id":"{}","signaling_addr":"{}"}}"#, id, addr));
     rt().spawn(async move {
         run_loop(&addr, &id).await;
     });
+}
+
+#[no_mangle]
+pub extern "C" fn chronodesk_get_config(key: *const std::ffi::c_char) -> *mut std::ffi::c_char {
+    let key = unsafe { CStr::from_ptr(key) }.to_str().unwrap_or("");
+    let config = load_config();
+    let val = config
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    CString::new(val).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn chronodesk_set_config(
+    key: *const std::ffi::c_char,
+    value: *const std::ffi::c_char,
+) {
+    let key = unsafe { CStr::from_ptr(key) }
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+    let value = unsafe { CStr::from_ptr(value) }
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+    let mut config = load_config();
+    config[&key] = serde_json::json!(&value);
+    save_config(&config);
+    push_event(&format!(r#"{{"type":"config_updated","key":"{}","value":"{}"}}"#, key, value));
 }
 
 async fn run_loop(signaling_addr: &str, my_id: &str) {

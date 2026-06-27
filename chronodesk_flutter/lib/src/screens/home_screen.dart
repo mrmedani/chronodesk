@@ -16,6 +16,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _peerId = '';
+  String _signalingAddr = '';
   bool _connected = false;
   bool _isHost = false;
   bool _connecting = false;
@@ -25,13 +26,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _pollTimer;
   Timer? _frameTimer;
   final TextEditingController _idController = TextEditingController();
+  final TextEditingController _addrController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    final addr = '127.0.0.1:21116'.toNativeUtf8();
-    native.chronodeskInit(addr);
-    calloc.free(addr);
+    _signalingAddr = native.getConfig('signaling_addr');
+    if (_signalingAddr.isEmpty) _signalingAddr = '127.0.0.1:21116';
+    _addrController.text = _signalingAddr;
+    native.chronodeskInit();
     Future.delayed(const Duration(milliseconds: 500), () {
       _peerId = native.getPeerId();
       setState(() {});
@@ -45,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _pollTimer?.cancel();
     _frameTimer?.cancel();
     _idController.dispose();
+    _addrController.dispose();
     super.dispose();
   }
 
@@ -171,6 +175,57 @@ class _HomeScreenState extends State<HomeScreen> {
     native.chronodeskDisconnect();
   }
 
+  void _showSettings() {
+    _addrController.text = native.getConfig('signaling_addr');
+    if (_addrController.text.isEmpty) _addrController.text = '127.0.0.1:21116';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Settings'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Signaling Server', style: TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _addrController,
+              style: const TextStyle(fontSize: 16),
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                hintText: 'host:port',
+                filled: true,
+                fillColor: Colors.grey.shade900,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Restart the app after changing this address.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              native.setConfig('signaling_addr', _addrController.text.trim());
+              setState(() => _signalingAddr = _addrController.text.trim());
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Server address saved. Restart to apply.')),
+              );
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -181,6 +236,13 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: const Color(0xFF16213E),
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.settings, color: Colors.grey.shade400),
+            onPressed: _showSettings,
+            tooltip: 'Settings',
+          ),
+        ],
       ),
       body: _connected && !_isHost && _frameImage != null
           ? _buildRemoteView()
@@ -212,6 +274,11 @@ class _HomeScreenState extends State<HomeScreen> {
               _peerId.isEmpty ? 'Initializing...' : _peerId,
               style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 4, color: Colors.white),
             ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Server: $_signalingAddr',
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           ),
           if (!_connected) ...[
             const SizedBox(height: 48),
@@ -302,19 +369,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         Expanded(
-          child: GestureDetector(
-            onScaleUpdate: (details) {},
-            child: InteractiveViewer(
-              child: Center(
-                child: _frameImage != null
-                    ? RawImage(
-                        image: _frameImage,
-                        fit: BoxFit.contain,
-                        width: _frameW.toDouble(),
-                        height: _frameH.toDouble(),
-                      )
-                    : const CircularProgressIndicator(),
-              ),
+          child: InteractiveViewer(
+            child: Center(
+              child: _frameImage != null
+                  ? RawImage(
+                      image: _frameImage,
+                      fit: BoxFit.contain,
+                      width: _frameW.toDouble(),
+                      height: _frameH.toDouble(),
+                    )
+                  : const CircularProgressIndicator(),
             ),
           ),
         ),

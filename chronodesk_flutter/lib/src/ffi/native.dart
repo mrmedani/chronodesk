@@ -15,8 +15,8 @@ DynamicLibrary _loadLibrary() {
 }
 
 final chronodeskInit = _lib.lookupFunction<
-    Void Function(Pointer<Utf8>),
-    void Function(Pointer<Utf8>)>('chronodesk_init');
+    Void Function(),
+    void Function()>('chronodesk_init');
 
 final chronodeskGetPeerId = _lib.lookupFunction<
     Pointer<Utf8> Function(),
@@ -45,6 +45,14 @@ final chronodeskDeny = _lib.lookupFunction<
 final chronodeskDisconnect = _lib.lookupFunction<
     Void Function(),
     void Function()>('chronodesk_disconnect');
+
+final chronodeskGetConfig = _lib.lookupFunction<
+    Pointer<Utf8> Function(Pointer<Utf8>),
+    Pointer<Utf8> Function(Pointer<Utf8>)>('chronodesk_get_config');
+
+final chronodeskSetConfig = _lib.lookupFunction<
+    Void Function(Pointer<Utf8>, Pointer<Utf8>),
+    void Function(Pointer<Utf8>, Pointer<Utf8>)>('chronodesk_set_config');
 
 typedef GetFrameNative = Int32 Function(
   Pointer<Pointer<Uint8>>,
@@ -94,4 +102,19 @@ String? pollEvent() {
 bool getFrame(Pointer<Pointer<Uint8>> data, Pointer<Int32> len,
     Pointer<Int32> w, Pointer<Int32> h) {
   return chronodeskGetFrame(data, len, w, h) != 0;
+}
+
+String getConfig(String key) {
+  final k = key.toNativeUtf8();
+  final ptr = chronodeskGetConfig(k);
+  calloc.free(k);
+  return _readCString(ptr) ?? '';
+}
+
+void setConfig(String key, String value) {
+  final k = key.toNativeUtf8();
+  final v = value.toNativeUtf8();
+  chronodeskSetConfig(k, v);
+  calloc.free(k);
+  calloc.free(v);
 }
