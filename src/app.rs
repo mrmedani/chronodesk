@@ -1,65 +1,9 @@
-mod capture;
-mod crypto;
-mod input;
-mod network;
-mod protocol;
-mod video;
-
 use anyhow::Result;
-use clap::Parser;
-use network::signaling::SignalEvent;
-use network::transport::{Transport, TransportEvent};
-use protocol::ChannelMessage;
-use tracing_subscriber;
+use crate::network::signaling::{SignalEvent, SignalingClient};
+use crate::network::transport::{Transport, TransportEvent};
+use crate::protocol::ChannelMessage;
 
-#[derive(Parser)]
-#[command(name = "CHRONODESK")]
-#[command(about = "Open-source remote desktop software")]
-enum Cli {
-    Host {
-        #[arg(short, long, default_value = "127.0.0.1:21116")]
-        signaling: String,
-
-        #[arg(short, long)]
-        peer_id: Option<String>,
-    },
-    Client {
-        #[arg(short, long, default_value = "127.0.0.1:21116")]
-        signaling: String,
-
-        #[arg(short, long)]
-        peer_id: Option<String>,
-
-        #[arg(short, long)]
-        connect: Option<String>,
-    },
-    Server {
-        #[arg(short, long, default_value = "0.0.0.0:21116")]
-        bind: String,
-    },
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
-    match Cli::parse() {
-        Cli::Host {
-            signaling,
-            peer_id,
-        } => run_host(&signaling, peer_id).await?,
-        Cli::Client {
-            signaling,
-            peer_id,
-            connect,
-        } => run_client(&signaling, peer_id, connect).await?,
-        Cli::Server { bind } => run_server(&bind).await?,
-    }
-
-    Ok(())
-}
-
-async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
+pub async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
     let my_id = peer_id.unwrap_or_else(|| {
         let id = uuid::Uuid::new_v4();
         id.to_string()[..8].to_string()
@@ -71,7 +15,7 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
         Transport::new(&my_id, "stun:stun.l.google.com:19302").await?;
 
     let (signaling, mut signal_events) =
-        network::signaling::SignalingClient::new(signaling_addr, &my_id);
+        SignalingClient::new(signaling_addr, &my_id);
 
     tokio::spawn(async move {
         if let Err(e) = signaling.run().await {
@@ -79,8 +23,8 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
         }
     });
 
-    let mut capture = capture::ScreenCapture::new()?;
-    let mut encoder = video::VideoEncoder::new(video::EncoderType::Auto, 1920, 1080)?;
+    let mut capture = crate::capture::ScreenCapture::new()?;
+    let mut encoder = crate::video::VideoEncoder::new(crate::video::EncoderType::Auto, 1920, 1080)?;
     let mut connected = false;
 
     loop {
@@ -138,7 +82,7 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
     Ok(())
 }
 
-async fn run_client(
+pub async fn run_client(
     signaling_addr: &str,
     peer_id: Option<String>,
     connect_to: Option<String>,
@@ -154,7 +98,7 @@ async fn run_client(
         Transport::new(&my_id, "stun:stun.l.google.com:19302").await?;
 
     let (signaling, mut signal_events) =
-        network::signaling::SignalingClient::new(signaling_addr, &my_id);
+        SignalingClient::new(signaling_addr, &my_id);
 
     tokio::spawn(async move {
         if let Err(e) = signaling.run().await {
@@ -197,11 +141,6 @@ async fn run_client(
     Ok(())
 }
 
-async fn run_server(_bind: &str) -> Result<()> {
-    tracing::warn!("Run 'cargo run --bin signaling-server -- --bind {_bind}' for the signaling server");
-    Ok(())
-}
-
 fn trace_signal_event(event: &SignalEvent) {
     match event {
         SignalEvent::Offer { from, .. } => tracing::info!("Signal: offer from {from}"),
@@ -215,15 +154,15 @@ fn trace_signal_event(event: &SignalEvent) {
 async fn handle_host_message(msg: ChannelMessage) -> Result<()> {
     match msg {
         ChannelMessage::InputMove { x, y } => {
-            let mut inp = input::InputController::new()?;
-            inp.mouse_move(x, y)?;
+            let mut input = crate::input::InputController::new()?;
+            input.mouse_move(x, y)?;
         }
         ChannelMessage::InputClick { button, pressed } => {
-            let mut inp = input::InputController::new()?;
+            let mut input = crate::input::InputController::new()?;
             if pressed {
-                inp.mouse_down(button)?;
+                input.mouse_down(button)?;
             } else {
-                inp.mouse_up(button)?;
+                input.mouse_up(button)?;
             }
         }
         ChannelMessage::InputKey { key: _, pressed: _ } => {

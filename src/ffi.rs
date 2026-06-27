@@ -1,65 +1,64 @@
-mod capture;
-mod crypto;
-mod input;
-mod network;
-mod protocol;
-mod video;
+use std::ffi::CStr;
+use std::sync::OnceLock;
+use tokio::runtime::Runtime;
 
-use anyhow::Result;
-use clap::Parser;
-use network::signaling::SignalEvent;
-use network::transport::{Transport, TransportEvent};
-use protocol::ChannelMessage;
-use tracing_subscriber;
+use crate::network::signaling::SignalEvent;
+use crate::network::transport::{Transport, TransportEvent};
+use crate::protocol::ChannelMessage;
 
-#[derive(Parser)]
-#[command(name = "CHRONODESK")]
-#[command(about = "Open-source remote desktop software")]
-enum Cli {
-    Host {
-        #[arg(short, long, default_value = "127.0.0.1:21116")]
-        signaling: String,
+static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
-        #[arg(short, long)]
-        peer_id: Option<String>,
-    },
-    Client {
-        #[arg(short, long, default_value = "127.0.0.1:21116")]
-        signaling: String,
-
-        #[arg(short, long)]
-        peer_id: Option<String>,
-
-        #[arg(short, long)]
-        connect: Option<String>,
-    },
-    Server {
-        #[arg(short, long, default_value = "0.0.0.0:21116")]
-        bind: String,
-    },
+fn rt() -> &'static Runtime {
+    RUNTIME.get_or_init(|| Runtime::new().expect("Failed to create tokio runtime"))
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+#[no_mangle]
+pub extern "C" fn start_host(signaling_addr: *const std::ffi::c_char, peer_id: *const std::ffi::c_char) {
+    let addr = unsafe { CStr::from_ptr(signaling_addr) }
+        .to_str()
+        .unwrap_or("127.0.0.1:21116");
+    let pid = unsafe { CStr::from_ptr(peer_id) }
+        .to_str()
+        .unwrap_or("host");
 
-    match Cli::parse() {
-        Cli::Host {
-            signaling,
-            peer_id,
-        } => run_host(&signaling, peer_id).await?,
-        Cli::Client {
-            signaling,
-            peer_id,
-            connect,
-        } => run_client(&signaling, peer_id, connect).await?,
-        Cli::Server { bind } => run_server(&bind).await?,
-    }
+    let addr_owned = addr.to_owned();
+    let pid_owned = pid.to_owned();
 
-    Ok(())
+    rt().spawn(async move {
+        if let Err(e) = run_host_impl(&addr_owned, Some(pid_owned)).await {
+            tracing::error!("Host error: {e}");
+        }
+    });
 }
 
-async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
+#[no_mangle]
+pub extern "C" fn start_client(
+    signaling_addr: *const std::ffi::c_char,
+    peer_id: *const std::ffi::c_char,
+    connect_to: *const std::ffi::c_char,
+) {
+    let addr = unsafe { CStr::from_ptr(signaling_addr) }
+        .to_str()
+        .unwrap_or("127.0.0.1:21116");
+    let pid = unsafe { CStr::from_ptr(peer_id) }
+        .to_str()
+        .unwrap_or("client");
+    let target = unsafe { CStr::from_ptr(connect_to) }
+        .to_str()
+        .unwrap_or("");
+
+    let addr_owned = addr.to_owned();
+    let pid_owned = pid.to_owned();
+    let target_owned = target.to_owned();
+
+    rt().spawn(async move {
+        if let Err(e) = run_client_impl(&addr_owned, Some(pid_owned), Some(target_owned)).await {
+            tracing::error!("Client error: {e}");
+        }
+    });
+}
+
+async fn run_host_impl(signaling_addr: &str, peer_id: Option<String>) -> anyhow::Result<()> {
     let my_id = peer_id.unwrap_or_else(|| {
         let id = uuid::Uuid::new_v4();
         id.to_string()[..8].to_string()
@@ -71,7 +70,7 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
         Transport::new(&my_id, "stun:stun.l.google.com:19302").await?;
 
     let (signaling, mut signal_events) =
-        network::signaling::SignalingClient::new(signaling_addr, &my_id);
+        crate::network::signaling::SignalingClient::new(signaling_addr, &my_id);
 
     tokio::spawn(async move {
         if let Err(e) = signaling.run().await {
@@ -79,14 +78,14 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
         }
     });
 
-    let mut capture = capture::ScreenCapture::new()?;
-    let mut encoder = video::VideoEncoder::new(video::EncoderType::Auto, 1920, 1080)?;
+    let mut capture = crate::capture::ScreenCapture::new()?;
+    let mut encoder = crate::video::VideoEncoder::new(crate::video::EncoderType::Auto, 1920, 1080)?;
     let mut connected = false;
 
     loop {
         tokio::select! {
             Some(event) = signal_events.recv() => {
-                trace_signal_event(&event);
+                trace_event(&event);
                 transport.handle_signal_event(event);
             }
             Some(event) = transport_events.recv() => {
@@ -100,7 +99,7 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
                         break;
                     }
                     TransportEvent::MessageReceived { msg } => {
-                        handle_host_message(msg).await?;
+                        handle_host_msg(msg).await?;
                     }
                     TransportEvent::Error { msg } => {
                         tracing::error!("Transport error: {msg}");
@@ -138,11 +137,11 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
     Ok(())
 }
 
-async fn run_client(
+async fn run_client_impl(
     signaling_addr: &str,
     peer_id: Option<String>,
     connect_to: Option<String>,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let my_id = peer_id.unwrap_or_else(|| {
         let id = uuid::Uuid::new_v4();
         id.to_string()[..8].to_string()
@@ -154,7 +153,7 @@ async fn run_client(
         Transport::new(&my_id, "stun:stun.l.google.com:19302").await?;
 
     let (signaling, mut signal_events) =
-        network::signaling::SignalingClient::new(signaling_addr, &my_id);
+        crate::network::signaling::SignalingClient::new(signaling_addr, &my_id);
 
     tokio::spawn(async move {
         if let Err(e) = signaling.run().await {
@@ -170,7 +169,7 @@ async fn run_client(
     loop {
         tokio::select! {
             Some(event) = signal_events.recv() => {
-                trace_signal_event(&event);
+                trace_event(&event);
                 transport.handle_signal_event(event);
             }
             Some(event) = transport_events.recv() => {
@@ -183,7 +182,7 @@ async fn run_client(
                         break;
                     }
                     TransportEvent::MessageReceived { msg } => {
-                        handle_client_message(msg);
+                        handle_client_msg(msg);
                     }
                     TransportEvent::Error { msg } => {
                         tracing::error!("Transport error: {msg}");
@@ -197,12 +196,7 @@ async fn run_client(
     Ok(())
 }
 
-async fn run_server(_bind: &str) -> Result<()> {
-    tracing::warn!("Run 'cargo run --bin signaling-server -- --bind {_bind}' for the signaling server");
-    Ok(())
-}
-
-fn trace_signal_event(event: &SignalEvent) {
+fn trace_event(event: &SignalEvent) {
     match event {
         SignalEvent::Offer { from, .. } => tracing::info!("Signal: offer from {from}"),
         SignalEvent::Answer { from, .. } => tracing::info!("Signal: answer from {from}"),
@@ -212,14 +206,14 @@ fn trace_signal_event(event: &SignalEvent) {
     }
 }
 
-async fn handle_host_message(msg: ChannelMessage) -> Result<()> {
+async fn handle_host_msg(msg: ChannelMessage) -> anyhow::Result<()> {
     match msg {
         ChannelMessage::InputMove { x, y } => {
-            let mut inp = input::InputController::new()?;
+            let mut inp = crate::input::InputController::new()?;
             inp.mouse_move(x, y)?;
         }
         ChannelMessage::InputClick { button, pressed } => {
-            let mut inp = input::InputController::new()?;
+            let mut inp = crate::input::InputController::new()?;
             if pressed {
                 inp.mouse_down(button)?;
             } else {
@@ -244,7 +238,7 @@ async fn handle_host_message(msg: ChannelMessage) -> Result<()> {
     Ok(())
 }
 
-fn handle_client_message(msg: ChannelMessage) {
+fn handle_client_msg(msg: ChannelMessage) {
     match msg {
         ChannelMessage::VideoFrame {
             width,

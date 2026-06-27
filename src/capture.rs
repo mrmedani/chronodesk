@@ -1,6 +1,5 @@
 use anyhow::Result;
 use std::collections::HashMap;
-use xcap::Monitor;
 
 #[derive(Debug, Clone)]
 pub struct CapturedFrame {
@@ -20,23 +19,21 @@ pub struct DirtyRect {
 }
 
 pub struct ScreenCapture {
-    monitors: Vec<Monitor>,
     prev_frames: HashMap<u32, Vec<u8>>,
 }
 
 impl ScreenCapture {
     pub fn new() -> Result<Self> {
-        let monitors = Monitor::all()?;
+        let monitors = xcap::Monitor::all()?;
         tracing::info!("Found {} monitor(s)", monitors.len());
         Ok(Self {
-            monitors,
             prev_frames: HashMap::new(),
         })
     }
 
     pub fn capture_all(&mut self) -> Result<Vec<CapturedFrame>> {
         let mut frames = Vec::new();
-        let monitors = Monitor::all()?;
+        let monitors = xcap::Monitor::all()?;
 
         for monitor in &monitors {
             let id = monitor.id()?;
@@ -60,7 +57,7 @@ impl ScreenCapture {
     }
 
     pub fn capture_monitor(&mut self, monitor_id: u32) -> Result<Option<CapturedFrame>> {
-        let monitors = Monitor::all()?;
+        let monitors = xcap::Monitor::all()?;
         let monitor = match monitors.iter().find(|m| m.id().ok() == Some(monitor_id)) {
             Some(m) => m,
             None => return Ok(None),
@@ -80,24 +77,6 @@ impl ScreenCapture {
             data,
             dirty_rects: dirty,
         }))
-    }
-
-    pub fn monitor_count(&self) -> usize {
-        self.monitors.len()
-    }
-
-    pub fn monitor_info(&self) -> Result<Vec<(u32, String, usize, usize)>> {
-        let monitors = Monitor::all()?;
-        let mut info = Vec::new();
-        for m in &monitors {
-            info.push((
-                m.id()?,
-                m.name().unwrap_or_default(),
-                m.width()? as usize,
-                m.height()? as usize,
-            ));
-        }
-        Ok(info)
     }
 
     fn detect_changes(
