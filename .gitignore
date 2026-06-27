@@ -1,0 +1,10 @@
+/target/
+chronodesk_app/build/
+chronodesk_app/.dart_tool/
+chronodesk_app/.packages
+chronodesk_app/pubspec.lock
+*.exe
+*.dll
+*.so
+*.dylib
+.DS_Store
