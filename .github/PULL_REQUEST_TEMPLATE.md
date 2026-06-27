@@ -21,6 +21,8 @@ Fixes #(issue)
 - [ ] New and existing unit tests pass locally (`cargo test`)
 - [ ] I have run `cargo clippy` and fixed all warnings
 - [ ] I have run `cargo fmt` to format my code
+- [ ] For Flutter changes: `cd chronodesk_flutter && flutter analyze` passes
+- [ ] For Flutter changes: I have tested the Rust DLL integration (`cargo build --lib`)
 - [ ] I have updated the documentation accordingly
 
 ## Testing

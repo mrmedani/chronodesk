@@ -19,6 +19,20 @@ body:
         - label: I am running the latest version
           required: false
 
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: How were you using CHRONODESK?
+      options:
+        - Flutter app (chronodesk_flutter.exe)
+        - CLI host (cargo run -- --peer-id ...)
+        - CLI client (cargo run -- --connect ...)
+        - Signaling server (cargo run --bin signaling-server)
+        - Other
+    validations:
+      required: true
+
   - type: textarea
     id: description
     attributes:
@@ -34,9 +48,9 @@ body:
       label: Steps to Reproduce
       description: Steps to reproduce the behavior
       placeholder: |
-        1. Run signaling server with '...'
-        2. Start host with '....'
-        3. Connect with client '....'
+        1. Run signaling server
+        2. Launch Flutter app
+        3. Enter remote peer ID and click Connect
         4. See error
     validations:
       required: true
@@ -73,8 +87,8 @@ body:
     id: version
     attributes:
       label: CHRONODESK Version
-      description: Output of `cargo run -- --version` or git commit hash
-      placeholder: v0.1.0 or commit abc123
+      description: Version number or git commit hash
+      placeholder: v0.2.0 or commit abc123
     validations:
       required: true
 

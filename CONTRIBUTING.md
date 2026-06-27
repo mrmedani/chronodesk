@@ -1,6 +1,6 @@
 # Contributing to CHRONODESK
 
-First off, thanks for taking the time to contribute! :tada:
+First off, thanks for taking the time to contribute!
 
 The following is a set of guidelines for contributing to CHRONODESK. These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this document.
 
@@ -30,8 +30,8 @@ This project and everyone participating in it is governed by the [CHRONODESK Cod
 1. **Fork** the repository
 2. **Clone** your fork: `git clone https://github.com/your-username/chronodesk.git`
 3. **Create a branch**: `git checkout -b feat/your-feature-name`
-4. **Install dependencies**: `cargo build`
-5. **Run the tests**: `cargo test`
+4. **Build the Rust library**: `cargo build --lib`
+5. **Build the Flutter app**: see [Flutter UI](#flutter-ui) below
 
 ---
 
@@ -43,12 +43,18 @@ This project and everyone participating in it is governed by the [CHRONODESK Cod
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
+# Install Flutter (Windows/macOS/Linux)
+# See https://flutter.dev/docs/get-started/install
+
 # Clone the repo
 git clone https://github.com/your-username/chronodesk.git
 cd chronodesk
 
-# Verify it builds
-cargo build
+# Build Rust core library
+cargo build --lib
+
+# Build signaling server binary
+cargo build --bin signaling-server
 ```
 
 ### Running locally
@@ -57,11 +63,39 @@ cargo build
 # Terminal 1: Start the signaling server
 cargo run --bin signaling-server
 
-# Terminal 2: Start a host
-cargo run -- --peer-id host1
+# Terminal 2: Build DLL and run Flutter app
+cargo build --lib
 
-# Terminal 3: Connect as a client
-cargo run -- --connect host1
+# Windows
+copy target\debug\chronodesk.dll chronodesk_flutter\build\windows\x64\runner\Release\
+cd chronodesk_flutter
+flutter run -d windows
+
+# macOS/Linux
+cp target/debug/libchronodesk.so chronodesk_flutter/build/linux/x64/release/bundle/
+cd chronodesk_flutter
+flutter run -d linux
+```
+
+### Flutter UI
+
+```bash
+cd chronodesk_flutter
+
+# Get dependencies
+flutter pub get
+
+# Analyze
+flutter analyze
+
+# Build for Windows
+flutter build windows
+
+# Build for Linux
+flutter build linux
+
+# Build for macOS
+flutter build macos
 ```
 
 ---
@@ -87,12 +121,16 @@ cargo run -- --connect host1
 - Use `anyhow::Result` for fallible functions
 - Use `thiserror` for library error types
 - Prefer `tracing` over `println`/`eprintln`
+- FFI exports must use `extern "C"` and raw C types (`*const c_char`, `*mut u8`, etc.)
+- Memory allocated in Rust for FFI must be freed by the corresponding `chronodesk_free_*` function
 
 ### Dart/Flutter
 
 - Run `dart format .` before committing
 - Follow the [Flutter style guide](https://docs.flutter.dev/style-guide)
 - Use `const` constructors where possible
+- Import `dart:ffi` and `package:ffi/ffi.dart` for native bindings
+- Use `DynamicLibrary.open` for loading the Rust DLL
 
 ### General
 
@@ -101,6 +139,7 @@ cargo run -- --connect host1
 - Keep functions small and focused
 - Handle errors, don't unwrap in production code
 - Prefer immutable state where possible
+- Never commit secrets, keys, or `*.dll` binaries
 
 ---
 
@@ -142,20 +181,16 @@ refactor(video): simplify encoder selection logic
 ## Testing
 
 ```bash
-# Run all tests
+# Rust tests
 cargo test
-
-# Run tests with output
 cargo test -- --nocapture
 
-# Run a specific test
-cargo test test_name
-
-# Run clippy
+# Rust lints
 cargo clippy --all-targets
-
-# Check formatting
 cargo fmt --all --check
+
+# Flutter analyze
+cd chronodesk_flutter && flutter analyze
 ```
 
 ---
@@ -163,20 +198,28 @@ cargo fmt --all --check
 ## Project Structure
 
 ```
-src/
-├── main.rs          — CLI entrypoint
-├── lib.rs           — Library exports (for FFI)
-├── capture.rs       — Screen capture module
-├── crypto.rs        — Encryption module
-├── input.rs         — Input injection module
-├── video.rs         — Video encoding module
-├── protocol.rs      — Data channel protocol
-├── ffi.rs           — C FFI exports
-├── network/         — WebRTC networking
-│   ├── transport.rs — PeerConnection management
-│   └── signaling.rs — Signaling client
-└── bin/
-    └── signaling.rs — Signaling server binary
+chronodesk/
+├── src/                          # Rust core engine
+│   ├── lib.rs                    # Library exports
+│   ├── ffi.rs                    # C FFI exports (event queue, frame buffer, accept/deny)
+│   ├── bin/signaling.rs          # WebSocket signaling server
+│   ├── capture.rs                # Screen capture (xcap DXGI)
+│   ├── crypto.rs                 # AEAD encryption (ring)
+│   ├── input.rs                  # Input injection (enigo)
+│   ├── video.rs                  # Video encoding (ffmpeg/JPEG)
+│   ├── protocol.rs               # Data channel message protocol (bincode)
+│   └── network/
+│       ├── transport.rs          # WebRTC PeerConnection
+│       └── signaling.rs          # Signaling client (WebSocket)
+├── chronodesk_flutter/           # Flutter UI
+│   └── lib/src/
+│       ├── app.dart
+│       ├── screens/home_screen.dart  # Single-screen AnyDesk-like UX
+│       └── ffi/native.dart           # Raw C FFI bindings
+├── server/                       # Server infrastructure (future)
+├── docs/                         # Documentation
+├── .github/                      # CI/CD workflows, issue/PR templates
+└── Dockerfile                    # Signaling server container
 ```
 
 ---
@@ -189,4 +232,4 @@ src/
 
 ---
 
-Again, thank you for contributing! :rocket:
+Again, thank you for contributing!

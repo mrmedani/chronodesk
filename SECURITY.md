@@ -4,6 +4,7 @@
 
 | Version | Supported |
 |---------|-----------|
+| 0.2.x   | :white_check_mark: |
 | 0.1.x   | :white_check_mark: |
 | < 0.1   | :x: |
 
@@ -13,11 +14,7 @@ We take the security of CHRONODESK seriously. If you believe you have found a se
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them via email:
-
-:email: **security@chronodesk.dev** (placeholder — update with actual address)
-
-Or use the GitHub Security Advisory:
+Instead, please report them via the GitHub Security Advisory:
 
 :lock: [Report a vulnerability](https://github.com/mrmedani/chronodesk/security/advisories/new)
 
@@ -40,16 +37,10 @@ Or use the GitHub Security Advisory:
 
 We follow a 90-day disclosure window. After a fix is released, we will publish a security advisory detailing the issue.
 
-## Recognition
+## Bug Bounties
 
-We maintain a hall of fame for security researchers who responsibly disclose vulnerabilities. With your permission, we will publicly acknowledge your contribution.
+At this time we do not offer a paid bug bounty program. We will publicly acknowledge your contribution in our security hall of fame (with your permission).
 
 ## Encryption
 
-For sensitive communications, please use our PGP key (placeholder):
-
-```
------BEGIN PGP PUBLIC KEY BLOCK-----
-[Key to be added]
------END PGP PUBLIC KEY BLOCK-----
-```
+CHRONODESK uses **AEAD (ChaCha20-Poly1305)** via the `ring` crate for encrypting data channel messages. Key exchange implementation is in progress.

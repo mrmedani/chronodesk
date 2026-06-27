@@ -33,7 +33,7 @@ Examples of unacceptable behavior:
 
 Project maintainers are responsible for clarifying and enforcing our standards.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the project team at **conduct@chronodesk.dev**.
+reported to the project team by opening a [GitHub Issue](https://github.com/mrmedani/chronodesk/issues).
 All complaints will be reviewed and investigated promptly and fairly.
 
 ## Attribution
