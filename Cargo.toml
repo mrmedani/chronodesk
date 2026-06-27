@@ -20,9 +20,16 @@ bytes = "1"
 # webrtc = "0.17"   # uncomment when ready to implement
 # ffmpeg-next = "8" # uncomment when ready to implement
 ring = "0.17"
+uuid = { version = "1", features = ["v4"] }
+dashmap = "6"
+tokio-tungstenite = "0.24"
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
+
+[[bin]]
+name = "signaling-server"
+path = "src/bin/signaling.rs"
 
 [profile.release]
 lto = true
