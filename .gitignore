@@ -1,10 +1,44 @@
+# Rust
 /target/
-chronodesk_app/build/
+**/*.rs.bk
+Cargo.lock
+
+# Flutter (chronodesk_flutter)
+chronodesk_flutter/.dart_tool/
+chronodesk_flutter/.packages
+chronodesk_flutter/.pub/
+chronodesk_flutter/build/
+chronodesk_flutter/pubspec.lock
+
+# Flutter (chronodesk_app)
 chronodesk_app/.dart_tool/
 chronodesk_app/.packages
+chronodesk_app/.pub/
+chronodesk_app/build/
 chronodesk_app/pubspec.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Build artifacts
 *.exe
 *.dll
 *.so
 *.dylib
-.DS_Store
+*.pdb
+*.exp
+*.lib
+
+# Temp
+*.log
+*.tmp
+dist/
