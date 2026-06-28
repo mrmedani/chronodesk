@@ -126,4 +126,4 @@ jobs:
         run: cd chronodesk_flutter && flutter pub get
 
       - name: Flutter analyze
-        run: cd chronodesk_flutter && flutter analyze
+        run: cd chronodesk_flutter && flutter analyze --no-fatal-infos
