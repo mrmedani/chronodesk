@@ -150,23 +150,19 @@ fn encode_ffmpeg(
 
     let encoder_name = encoder_type.name();
 
-    let codec = ffmpeg_next::encoder::find_encoder_by_name(encoder_name)
-        .or_else(|_| {
+    let codec = ffmpeg_next::encoder::find_by_name(encoder_name)
+        .or_else(|| {
             tracing::warn!("{encoder_name} not available, falling back to libx264");
-            ffmpeg_next::encoder::find_encoder_by_name("libx264")
+            ffmpeg_next::encoder::find_by_name("libx264")
         })
-        .map_err(|_| {
+        .ok_or_else(|| {
             anyhow::anyhow!("No H.264 encoder found (install FFmpeg with h264 support)")
         })?;
 
-    let mut encoder = ffmpeg_next::encoder::Encoder::new(codec)?;
-    let ctx = encoder.encoder();
-
-    ctx.set_width(width as i32);
-    ctx.set_height(height as i32);
-    ctx.set_format(ff::Pixel::YUV420P);
-    ctx.set_time_base(ffmpeg_next::Rational::new(1, 60));
-    ctx.set_frame_rate(Some(ffmpeg_next::Rational::new(60, 1)));
+    let mut video = ffmpeg_next::encoder::Encoder::new().video()?;
+    video.set_width(width);
+    video.set_height(height);
+    video.set_format(ff::Pixel::YUV420P);
 
     let mut opts = ffmpeg_next::Dictionary::new();
 
@@ -195,7 +191,7 @@ fn encode_ffmpeg(
         }
     }
 
-    encoder.open_with_codec_options(opts)?;
+    let mut encoder = video.open_as_with(codec, opts)?;
 
     let mut sws = ffmpeg_next::software::scaling::Context::get(
         ff::Pixel::BGRA,
@@ -207,22 +203,22 @@ fn encode_ffmpeg(
         ffmpeg_next::software::scaling::Flags::BILINEAR,
     )?;
 
-    let mut src = ffmpeg_next::frame::Video::new(ff::Pixel::BGRA, width as i32, height as i32);
+    let mut src = ffmpeg_next::frame::Video::new(ff::Pixel::BGRA, width, height);
     src.data_mut(0).copy_from_slice(bgra_data);
     src.set_pts(Some(pts));
 
-    let mut dst = ffmpeg_next::frame::Video::new(ff::Pixel::YUV420P, width as i32, height as i32);
+    let mut dst = ffmpeg_next::frame::Video::new(ff::Pixel::YUV420P, width, height);
     sws.run(&src, &mut dst)?;
 
     let mut packets = Vec::new();
     encoder.send_frame(&dst)?;
 
+    let mut packet = ffmpeg_next::Packet::empty();
     loop {
-        let mut packet = ffmpeg_next::Packet::empty();
         match encoder.receive_packet(&mut packet) {
             Ok(()) => {
                 packets.push(EncodedPacket {
-                    data: packet.data().to_vec(),
+                    data: packet.data().unwrap_or_default().to_vec(),
                     keyframe: packet.is_key(),
                     pts,
                     codec: "h264",
@@ -239,13 +235,13 @@ fn encode_ffmpeg(
 fn detect_best_encoder() -> EncoderType {
     #[cfg(feature = "ffmpeg")]
     {
-        if let Ok(_) = ffmpeg_next::encoder::find_encoder_by_name("h264_nvenc") {
+        if ffmpeg_next::encoder::find_by_name("h264_nvenc").is_some() {
             return EncoderType::Nvenc;
         }
-        if let Ok(_) = ffmpeg_next::encoder::find_encoder_by_name("h264_qsv") {
+        if ffmpeg_next::encoder::find_by_name("h264_qsv").is_some() {
             return EncoderType::QuickSync;
         }
-        if let Ok(_) = ffmpeg_next::encoder::find_encoder_by_name("h264_amf") {
+        if ffmpeg_next::encoder::find_by_name("h264_amf").is_some() {
             return EncoderType::Amf;
         }
     }
