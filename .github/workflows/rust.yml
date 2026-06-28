@@ -85,9 +85,9 @@ jobs:
         run: |
           for f in build-err.log build-lib-err.log; do
             if [ -f "$f" ]; then
-              while IFS= read -r line; do
-                echo "::error file=src/video.rs,title=build error::$line"
-              done < "$f"
+              tail -30 "$f" | while IFS= read -r line; do
+                echo "::error file=$f,title=build error::$line"
+              done
             fi
           done
 
