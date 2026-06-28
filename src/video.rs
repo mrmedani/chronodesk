@@ -227,7 +227,7 @@ fn encode_ffmpeg(
                 });
             }
             Err(ffmpeg_next::Error::Other {
-                errno: ffmpeg_next::EAGAIN,
+                errno: ffmpeg_next::error::EAGAIN,
             }) => break,
             Err(e) => return Err(e.into()),
         }
