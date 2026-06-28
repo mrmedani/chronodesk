@@ -48,12 +48,19 @@ jobs:
       - name: Display ffmpeg errors
         if: matrix.os == 'ubuntu-latest' && always()
         run: |
-          cat ffmpeg-check.log
-          echo "::group::FFmpeg compiler errors"
-          grep -E "^(error|warning)\[" ffmpeg-check.log | head -50 | while IFS= read -r line; do
-            echo "::error file=src/video.rs,line=1::${line}"
-          done
-          echo "::endgroup::"
+          {
+            echo "### FFmpeg check log"
+            echo '```'
+            cat ffmpeg-check.log | head -200
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload ffmpeg check log
+        if: matrix.os == 'ubuntu-latest' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-check-log
+          path: ffmpeg-check.log
 
       - name: Fail if ffmpeg check failed
         if: matrix.os == 'ubuntu-latest' && steps.ffmpeg-check.outcome != 'success'
