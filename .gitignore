@@ -37,6 +37,9 @@ Desktop.ini
 *.exp
 *.lib
 
+# SSH keys
+ssh*/
+
 # Temp
 *.log
 *.tmp
