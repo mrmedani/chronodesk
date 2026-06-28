@@ -117,7 +117,7 @@ fn get_signaling_addr() -> String {
     config
         .get("signaling_addr")
         .and_then(|v| v.as_str())
-        .unwrap_or("127.0.0.1:21116")
+        .unwrap_or("144.24.201.196:21116")
         .to_string()
 }
 
@@ -169,7 +169,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
     let (signaling_client, mut signal_events) = SignalingClient::new(signaling_addr, my_id);
     let signaling_tx = signaling_client.channel();
 
-    let stun_addr = format!("stun:{}", signaling_addr.split(':').next().unwrap_or("127.0.0.1"));
+    let stun_addr = format!("stun:{}", signaling_addr.split(':').next().unwrap_or("144.24.201.196"));
 
     let (transport, mut transport_events) =
         match Transport::new(my_id, &stun_addr, Some(signaling_tx.clone())).await
@@ -229,12 +229,9 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
             Some(event) = transport_events.recv() => {
                 match event {
                     TransportEvent::Connected { .. } => {
-                        capture_active = {
-                            let mut s = state().lock().unwrap();
-                            s.connected = true;
-                            s.is_host = s.pending_offer.take().is_some();
-                            s.is_host
-                        };
+                        let mut s = state().lock().unwrap();
+                        s.connected = true;
+                        capture_active = s.is_host;
                         push_event(r#"{"type":"connected"}"#);
                     }
                     TransportEvent::Disconnected { .. } => {
@@ -371,7 +368,8 @@ pub extern "C" fn chronodesk_accept() {
         .ok()
         .flatten();
     if let Some((from, sdp)) = pending {
-        let s = state().lock().unwrap();
+        let mut s = state().lock().unwrap();
+        s.is_host = true;
         if let Some(ref tx) = s.transport_tx {
             let _ = tx.send(TrCmd::HandleOffer(from, sdp));
         }

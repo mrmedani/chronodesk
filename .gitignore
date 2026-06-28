@@ -1,7 +1,6 @@
 # Rust
 /target/
 **/*.rs.bk
-Cargo.lock
 
 # Flutter (chronodesk_flutter)
 chronodesk_flutter/.dart_tool/
@@ -42,3 +41,8 @@ Desktop.ini
 *.log
 *.tmp
 dist/
+*.zip
+.agents/
+skills-lock.json
+chronodesk_flutter/.flutter-plugins-dependencies
+chronodesk_flutter/.flutter-plugins

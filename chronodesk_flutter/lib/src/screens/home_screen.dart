@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:ffi/ffi.dart';
 import '../ffi/native.dart' as native;
+import '../update_checker.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,13 +34,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _signalingAddr = native.getConfig('signaling_addr');
-    if (_signalingAddr.isEmpty) _signalingAddr = '127.0.0.1:21116';
+    if (_signalingAddr.isEmpty) _signalingAddr = '144.24.201.196:21116';
     _addrController.text = _signalingAddr;
     native.chronodeskInit();
     Future.delayed(const Duration(milliseconds: 500), () {
       _peerId = native.getPeerId();
       setState(() {});
     });
+    Future.delayed(const Duration(seconds: 2), _autoCheckUpdate);
     _pollTimer = Timer.periodic(const Duration(milliseconds: 50), (_) => _pollEvents());
     _frameTimer = Timer.periodic(const Duration(milliseconds: 33), (_) => _pollFrame());
   }
@@ -177,13 +180,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showSettings() {
     _addrController.text = native.getConfig('signaling_addr');
-    if (_addrController.text.isEmpty) _addrController.text = '127.0.0.1:21116';
+    if (_addrController.text.isEmpty) _addrController.text = '144.24.201.196:21116';
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Settings'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text('Signaling Server', style: TextStyle(fontSize: 13, color: Colors.grey)),
             const SizedBox(height: 8),
@@ -203,12 +207,20 @@ class _HomeScreenState extends State<HomeScreen> {
               'Restart the app after changing this address.',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
             ),
+            const SizedBox(height: 24),
+            const Divider(color: Colors.grey),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () => _checkUpdate(ctx),
+              icon: const Icon(Icons.system_update, size: 18),
+              label: const Text('Check for Updates'),
+            ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
+            child: const Text('Close'),
           ),
           FilledButton(
             onPressed: () {
@@ -224,6 +236,137 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  void _autoCheckUpdate() {
+    checkForUpdate().then((update) {
+      if (!mounted || update == null) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Row(children: [
+            Icon(Icons.system_update, color: Colors.cyan.shade300, size: 22),
+            const SizedBox(width: 8),
+            Text('Update v${update.version}'),
+          ]),
+          content: Text('A new version is available. Download and install now?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Later')),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _performUpdate(update.url);
+              },
+              icon: const Icon(Icons.download, size: 18),
+              label: const Text('Update'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  void _checkUpdate(BuildContext settingsCtx) {
+    showDialog(
+      context: settingsCtx,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Checking for Updates'),
+        content: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 16),
+            Text('Checking...'),
+          ],
+        ),
+      ),
+    );
+    checkForUpdate().then((update) {
+      Navigator.of(settingsCtx).pop();
+      if (update == null) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Up to Date'),
+              content:             Text('CHRONODESK v$currentVersion is the latest version.'),
+              actions: [FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+            ),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Update Available: v${update.version}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('A new version is available.'),
+                if (update.notes.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text('Release notes:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(update.notes, style: const TextStyle(fontSize: 12)),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Later')),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _performUpdate(update.url);
+              },
+              icon: const Icon(Icons.download, size: 18),
+              label: const Text('Download Update'),
+            ),
+          ],
+        ),
+      );
+    }).catchError((_) {
+      Navigator.of(settingsCtx).pop();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to check for updates. Check your internet connection.')),
+        );
+      }
+    });
+  }
+
+  void _performUpdate(String url) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Downloading Update...'),
+        content: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 16),
+            Text('Downloading...'),
+          ],
+        ),
+      ),
+    );
+    downloadUpdateZip().then((zipPath) {
+      Navigator.of(context).pop();
+      applyUpdate(zipPath);
+    }).catchError((e) {
+      Navigator.of(context).pop();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Update failed: $e')),
+        );
+      }
+    });
   }
 
   @override

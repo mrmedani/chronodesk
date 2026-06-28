@@ -17,14 +17,14 @@ use tracing_subscriber;
 #[command(about = "Open-source remote desktop software")]
 enum Cli {
     Host {
-        #[arg(short, long, default_value = "127.0.0.1:21116")]
+        #[arg(short, long, default_value = "144.24.201.196:21116")]
         signaling: String,
 
         #[arg(short, long)]
         peer_id: Option<String>,
     },
     Client {
-        #[arg(short, long, default_value = "127.0.0.1:21116")]
+        #[arg(short, long, default_value = "144.24.201.196:21116")]
         signaling: String,
 
         #[arg(short, long)]

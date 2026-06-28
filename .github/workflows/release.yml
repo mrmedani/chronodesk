@@ -83,11 +83,17 @@ jobs:
         run: |
           copy dll\chronodesk.dll chronodesk_flutter\build\windows\x64\runner\Release\
 
+      - name: Package Flutter as zip
+        shell: pwsh
+        run: |
+          cd chronodesk_flutter\build\windows\x64\runner\Release
+          Compress-Archive -Path * -DestinationPath chronodesk_flutter_windows.zip
+
       - name: Upload Flutter artifact
         uses: actions/upload-artifact@v4
         with:
           name: chronodesk-flutter-windows
-          path: chronodesk_flutter\build\windows\x64\runner\Release\
+          path: chronodesk_flutter\build\windows\x64\runner\Release\chronodesk_flutter_windows.zip
 
   publish:
     name: Create Release
@@ -106,6 +112,8 @@ jobs:
           for dir in chronodesk-*/; do
             (cd "$dir" && sha256sum * > "../${dir%/}.sha256")
           done
+          cd chronodesk-flutter-windows
+          sha256sum * > "../chronodesk-flutter-windows.sha256"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -114,6 +122,7 @@ jobs:
           body_path: CHANGELOG.md
           files: |
             chronodesk-*/*
+            chronodesk-flutter-windows/*
             *.sha256
           draft: false
           prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}
