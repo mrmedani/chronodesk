@@ -75,19 +75,23 @@ jobs:
           path: dll
 
       - name: Build Flutter
-        shell: pwsh
+        shell: cmd
         run: |
           cd chronodesk_flutter
-          flutter pub get 2>&1 | Out-File -FilePath flutter_build.log -Encoding utf8
-          flutter build windows --release 2>&1 | Out-File -FilePath flutter_build.log -Encoding utf8 -Append
-          if ($LASTEXITCODE -ne 0) { throw "Build failed with exit code $LASTEXITCODE" }
+          flutter pub get > flutter_build.log 2>&1
+          flutter build windows --release >> flutter_build.log 2>&1
 
       - name: Show Flutter build log
         if: failure()
         shell: pwsh
         run: |
-          if (Test-Path chronodesk_flutter/flutter_build.log) {
-            Get-Content chronodesk_flutter/flutter_build.log -Tail 50 | ForEach-Object { echo "::error::flutter: $_" }
+          $log = "chronodesk_flutter\flutter_build.log"
+          if (Test-Path $log) {
+            $content = Get-Content $log -Tail 50
+            $content | ForEach-Object { echo "::error::flutter: $_" }
+          } else {
+            echo "::error::flutter: build log not found"
+            Get-ChildItem chronodesk_flutter -Depth 1 | Select-Object Name | ForEach-Object { echo "::error::file: $($_.Name)" }
           }
           echo "::error::flutter build failed"
 
