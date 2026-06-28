@@ -129,7 +129,10 @@ pub extern "C" fn chronodesk_init() {
         let mut s = state().lock().unwrap();
         s.peer_id = id.clone();
     }
-    push_event(&format!(r#"{{"type":"init","peer_id":"{}","signaling_addr":"{}"}}"#, id, addr));
+    push_event(&format!(
+        r#"{{"type":"init","peer_id":"{}","signaling_addr":"{}"}}"#,
+        id, addr
+    ));
     rt().spawn(async move {
         run_loop(&addr, &id).await;
     });
@@ -139,10 +142,7 @@ pub extern "C" fn chronodesk_init() {
 pub extern "C" fn chronodesk_get_config(key: *const std::ffi::c_char) -> *mut std::ffi::c_char {
     let key = unsafe { CStr::from_ptr(key) }.to_str().unwrap_or("");
     let config = load_config();
-    let val = config
-        .get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let val = config.get(key).and_then(|v| v.as_str()).unwrap_or("");
     CString::new(val).unwrap_or_default().into_raw()
 }
 
@@ -162,21 +162,29 @@ pub extern "C" fn chronodesk_set_config(
     let mut config = load_config();
     config[&key] = serde_json::json!(&value);
     save_config(&config);
-    push_event(&format!(r#"{{"type":"config_updated","key":"{}","value":"{}"}}"#, key, value));
+    push_event(&format!(
+        r#"{{"type":"config_updated","key":"{}","value":"{}"}}"#,
+        key, value
+    ));
 }
 
 async fn run_loop(signaling_addr: &str, my_id: &str) {
     let (signaling_client, mut signal_events) = SignalingClient::new(signaling_addr, my_id);
     let signaling_tx = signaling_client.channel();
 
-    let stun_addr = format!("stun:{}", signaling_addr.split(':').next().unwrap_or("144.24.201.196"));
+    let stun_addr = format!(
+        "stun:{}",
+        signaling_addr.split(':').next().unwrap_or("144.24.201.196")
+    );
 
     let (transport, mut transport_events) =
-        match Transport::new(my_id, &stun_addr, Some(signaling_tx.clone())).await
-        {
+        match Transport::new(my_id, &stun_addr, Some(signaling_tx.clone())).await {
             Ok(t) => t,
             Err(e) => {
-                push_event(&format!(r#"{{"type":"error","msg":"Transport init: {}"}}"#, e));
+                push_event(&format!(
+                    r#"{{"type":"error","msg":"Transport init: {}"}}"#,
+                    e
+                ));
                 return;
             }
         };
@@ -443,6 +451,9 @@ pub extern "C" fn chronodesk_send_input_move(x: i32, y: i32) {
 pub extern "C" fn chronodesk_send_input_click(button: u8, pressed: bool) {
     let s = state().lock().unwrap();
     if let Some(ref tx) = s.transport_tx {
-        let _ = tx.send(TrCmd::SendMessage(ChannelMessage::InputClick { button, pressed }));
+        let _ = tx.send(TrCmd::SendMessage(ChannelMessage::InputClick {
+            button,
+            pressed,
+        }));
     }
 }

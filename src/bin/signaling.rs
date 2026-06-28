@@ -7,7 +7,6 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
-use tracing_subscriber;
 
 #[derive(Parser)]
 #[command(name = "signaling-server")]
@@ -18,12 +17,32 @@ struct Args {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 enum SignalMessage {
-    Register { peer_id: String },
-    Offer { from: String, to: String, sdp: String },
-    Answer { from: String, to: String, sdp: String },
-    IceCandidate { from: String, to: String, candidate: String, sdp_mid: String, sdp_mline_index: u16 },
-    PeerList { peers: Vec<String> },
-    Error { msg: String },
+    Register {
+        peer_id: String,
+    },
+    Offer {
+        from: String,
+        to: String,
+        sdp: String,
+    },
+    Answer {
+        from: String,
+        to: String,
+        sdp: String,
+    },
+    IceCandidate {
+        from: String,
+        to: String,
+        candidate: String,
+        sdp_mid: String,
+        sdp_mline_index: u16,
+    },
+    PeerList {
+        peers: Vec<String>,
+    },
+    Error {
+        msg: String,
+    },
 }
 
 type PeerMap = Arc<DashMap<String, tokio::sync::mpsc::UnboundedSender<SignalMessage>>>;
@@ -104,10 +123,20 @@ async fn handle_connection(
                     let _ = peer.send(SignalMessage::Answer { from, to, sdp });
                 }
             }
-            SignalMessage::IceCandidate { from, to, candidate, sdp_mid, sdp_mline_index } => {
+            SignalMessage::IceCandidate {
+                from,
+                to,
+                candidate,
+                sdp_mid,
+                sdp_mline_index,
+            } => {
                 if let Some(peer) = peers.get(&to) {
                     let _ = peer.send(SignalMessage::IceCandidate {
-                        from, to, candidate, sdp_mid, sdp_mline_index,
+                        from,
+                        to,
+                        candidate,
+                        sdp_mid,
+                        sdp_mline_index,
                     });
                 }
             }

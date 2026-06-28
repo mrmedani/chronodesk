@@ -88,11 +88,23 @@ impl ScreenCapture {
     ) -> Vec<DirtyRect> {
         let prev = match self.prev_frames.get(&id) {
             Some(p) => p,
-            None => return vec![DirtyRect { x: 0, y: 0, width, height }],
+            None => {
+                return vec![DirtyRect {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height,
+                }]
+            }
         };
 
         if prev.len() != new_data.len() {
-            return vec![DirtyRect { x: 0, y: 0, width, height }];
+            return vec![DirtyRect {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            }];
         }
 
         let mut rects = Vec::new();

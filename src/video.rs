@@ -77,7 +77,13 @@ impl VideoEncoder {
 
         #[cfg(not(feature = "ffmpeg"))]
         {
-            encode_jpeg(bgra_data, self.width, self.height, self.frame_count, self.quality)
+            encode_jpeg(
+                bgra_data,
+                self.width,
+                self.height,
+                self.frame_count,
+                self.quality,
+            )
         }
     }
 
@@ -149,7 +155,9 @@ fn encode_ffmpeg(
             tracing::warn!("{encoder_name} not available, falling back to libx264");
             ffmpeg_next::encoder::find_encoder_by_name("libx264")
         })
-        .map_err(|_| anyhow::anyhow!("No H.264 encoder found (install FFmpeg with h264 support)"))?;
+        .map_err(|_| {
+            anyhow::anyhow!("No H.264 encoder found (install FFmpeg with h264 support)")
+        })?;
 
     let mut encoder = ffmpeg_next::encoder::Encoder::new(codec)?;
     let ctx = encoder.encoder();

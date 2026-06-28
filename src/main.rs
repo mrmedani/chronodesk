@@ -10,7 +10,6 @@ use clap::Parser;
 use network::signaling::SignalEvent;
 use network::transport::{Transport, TransportEvent};
 use protocol::ChannelMessage;
-use tracing_subscriber;
 
 #[derive(Parser)]
 #[command(name = "CHRONODESK")]
@@ -44,10 +43,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     match Cli::parse() {
-        Cli::Host {
-            signaling,
-            peer_id,
-        } => run_host(&signaling, peer_id).await?,
+        Cli::Host { signaling, peer_id } => run_host(&signaling, peer_id).await?,
         Cli::Client {
             signaling,
             peer_id,
@@ -67,11 +63,15 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
 
     tracing::info!("CHRONODESK host starting as: {my_id}");
 
-    let (transport, mut transport_events) =
-        Transport::new(&my_id, "stun:stun.l.google.com:19302").await?;
-
     let (signaling, mut signal_events) =
         network::signaling::SignalingClient::new(signaling_addr, &my_id);
+
+    let (transport, mut transport_events) = Transport::new(
+        &my_id,
+        "stun:stun.l.google.com:19302",
+        Some(signaling.channel()),
+    )
+    .await?;
 
     tokio::spawn(async move {
         if let Err(e) = signaling.run().await {
@@ -150,11 +150,15 @@ async fn run_client(
 
     tracing::info!("CHRONODESK client starting as: {my_id}");
 
-    let (mut transport, mut transport_events) =
-        Transport::new(&my_id, "stun:stun.l.google.com:19302").await?;
-
     let (signaling, mut signal_events) =
         network::signaling::SignalingClient::new(signaling_addr, &my_id);
+
+    let (mut transport, mut transport_events) = Transport::new(
+        &my_id,
+        "stun:stun.l.google.com:19302",
+        Some(signaling.channel()),
+    )
+    .await?;
 
     tokio::spawn(async move {
         if let Err(e) = signaling.run().await {
@@ -198,7 +202,9 @@ async fn run_client(
 }
 
 async fn run_server(_bind: &str) -> Result<()> {
-    tracing::warn!("Run 'cargo run --bin signaling-server -- --bind {_bind}' for the signaling server");
+    tracing::warn!(
+        "Run 'cargo run --bin signaling-server -- --bind {_bind}' for the signaling server"
+    );
     Ok(())
 }
 
@@ -245,6 +251,7 @@ async fn handle_host_message(msg: ChannelMessage) -> Result<()> {
 }
 
 fn handle_client_message(msg: ChannelMessage) {
+    #[allow(clippy::single_match)]
     match msg {
         ChannelMessage::VideoFrame {
             width,

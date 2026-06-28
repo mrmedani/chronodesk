@@ -7,27 +7,69 @@ use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum SignalMessage {
-    Register { peer_id: String },
-    Offer { from: String, to: String, sdp: String },
-    Answer { from: String, to: String, sdp: String },
-    IceCandidate { from: String, to: String, candidate: String, sdp_mid: String, sdp_mline_index: u16 },
-    PeerList { peers: Vec<String> },
-    Error { msg: String },
+    Register {
+        peer_id: String,
+    },
+    Offer {
+        from: String,
+        to: String,
+        sdp: String,
+    },
+    Answer {
+        from: String,
+        to: String,
+        sdp: String,
+    },
+    IceCandidate {
+        from: String,
+        to: String,
+        candidate: String,
+        sdp_mid: String,
+        sdp_mline_index: u16,
+    },
+    PeerList {
+        peers: Vec<String>,
+    },
+    Error {
+        msg: String,
+    },
 }
 
 pub enum SignalEvent {
-    Offer { from: String, sdp: String },
-    Answer { from: String, sdp: String },
-    IceCandidate { from: String, candidate: String, sdp_mid: String, sdp_mline_index: u16 },
+    Offer {
+        from: String,
+        sdp: String,
+    },
+    Answer {
+        from: String,
+        sdp: String,
+    },
+    IceCandidate {
+        from: String,
+        candidate: String,
+        sdp_mid: String,
+        sdp_mline_index: u16,
+    },
     PeerList(Vec<String>),
     Error(String),
 }
 
 #[allow(dead_code)]
 pub(crate) enum SignalCommand {
-    SendOffer { to: String, sdp: String },
-    SendAnswer { to: String, sdp: String },
-    SendIceCandidate { to: String, candidate: String, sdp_mid: String, sdp_mline_index: u16 },
+    SendOffer {
+        to: String,
+        sdp: String,
+    },
+    SendAnswer {
+        to: String,
+        sdp: String,
+    },
+    SendIceCandidate {
+        to: String,
+        candidate: String,
+        sdp_mid: String,
+        sdp_mline_index: u16,
+    },
     Disconnect,
 }
 
@@ -130,9 +172,18 @@ impl SignalingClient {
             SignalMessage::Answer { from, sdp, .. } => {
                 let _ = self.event_tx.send(SignalEvent::Answer { from, sdp });
             }
-            SignalMessage::IceCandidate { from, candidate, sdp_mid, sdp_mline_index, .. } => {
+            SignalMessage::IceCandidate {
+                from,
+                candidate,
+                sdp_mid,
+                sdp_mline_index,
+                ..
+            } => {
                 let _ = self.event_tx.send(SignalEvent::IceCandidate {
-                    from, candidate, sdp_mid, sdp_mline_index,
+                    from,
+                    candidate,
+                    sdp_mid,
+                    sdp_mline_index,
                 });
             }
             SignalMessage::PeerList { peers } => {

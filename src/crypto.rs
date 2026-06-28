@@ -9,7 +9,10 @@ pub struct Crypto {
 
 impl Crypto {
     pub fn new() -> Self {
-        Self { key: [0u8; 32], algorithm: "none" }
+        Self {
+            key: [0u8; 32],
+            algorithm: "none",
+        }
     }
 
     pub fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>> {

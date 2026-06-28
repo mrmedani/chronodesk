@@ -1,6 +1,7 @@
 use anyhow::Result;
 use enigo::{
-    Button, Coordinate, Direction, Direction::{Click, Press, Release},
+    Button, Coordinate, Direction,
+    Direction::{Click, Press, Release},
     Enigo, Key, Keyboard, Mouse, Settings,
 };
 

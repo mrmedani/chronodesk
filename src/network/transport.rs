@@ -74,8 +74,7 @@ impl Transport {
 
         let pc = Arc::new(api.new_peer_connection(config).await?);
         let pc_clone = pc.clone();
-        let data_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>> =
-            Arc::new(Mutex::new(None));
+        let data_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
         let dc_store = data_channel.clone();
 
         let current_peer: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
@@ -112,9 +111,7 @@ impl Transport {
                 dc.on_message(Box::new(move |msg| {
                     let tx = tx2.clone();
                     Box::pin(async move {
-                        if let Ok(cmsg) =
-                            bincode::deserialize::<ChannelMessage>(&msg.data)
-                        {
+                        if let Ok(cmsg) = bincode::deserialize::<ChannelMessage>(&msg.data) {
                             let _ = tx.send(TransportEvent::MessageReceived { msg: cmsg });
                         }
                     })
@@ -259,9 +256,7 @@ impl Transport {
                 let _ = self.signal_tx.send(SignalCommand::HandleOffer(from, sdp));
             }
             SignalEvent::Answer { from, sdp } => {
-                let _ = self
-                    .signal_tx
-                    .send(SignalCommand::HandleAnswer(from, sdp));
+                let _ = self.signal_tx.send(SignalCommand::HandleAnswer(from, sdp));
             }
             SignalEvent::IceCandidate {
                 from,
