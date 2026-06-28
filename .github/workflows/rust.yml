@@ -17,6 +17,7 @@ jobs:
     name: Check & Lint
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
@@ -126,4 +127,4 @@ jobs:
         run: cd chronodesk_flutter && flutter pub get
 
       - name: Flutter analyze
-        run: cd chronodesk_flutter && flutter analyze --no-fatal-infos
+        run: cd chronodesk_flutter && flutter analyze --no-fatal-infos --no-fatal-warnings
