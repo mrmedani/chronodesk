@@ -75,10 +75,21 @@ jobs:
           path: dll
 
       - name: Build Flutter
+        shell: pwsh
         run: |
           cd chronodesk_flutter
-          flutter pub get
-          flutter build windows --release
+          flutter pub get 2>&1 | Out-File -FilePath flutter_build.log -Encoding utf8
+          flutter build windows --release 2>&1 | Out-File -FilePath flutter_build.log -Encoding utf8 -Append
+          if ($LASTEXITCODE -ne 0) { throw "Build failed with exit code $LASTEXITCODE" }
+
+      - name: Show Flutter build log
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path chronodesk_flutter/flutter_build.log) {
+            Get-Content chronodesk_flutter/flutter_build.log -Tail 50 | ForEach-Object { echo "::error::flutter: $_" }
+          }
+          echo "::error::flutter build failed"
 
       - name: Copy DLL to output
         run: |
