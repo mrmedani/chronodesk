@@ -70,30 +70,17 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build binary
-        continue-on-error: true
-        id: build-bin
+        shell: bash
         run: cargo build --release 2>build-err.log
 
-      - name: Build library (DLL/SO)
-        if: steps.build-bin.outcome == 'success'
-        continue-on-error: true
-        id: build-lib
-        run: cargo build --release --lib 2>build-lib-err.log
-
-      - name: Show build errors as annotations
-        if: always()
+      - name: Show build errors
+        if: failure() && hashFiles('build-err.log') != ''
+        shell: bash
         run: |
-          for f in build-err.log build-lib-err.log; do
-            if [ -f "$f" ]; then
-              tail -30 "$f" | while IFS= read -r line; do
-                echo "::error file=$f,title=build error::$line"
-              done
-            fi
-          done
-
-      - name: Fail if any build failed
-        if: steps.build-bin.outcome != 'success' || steps.build-lib.outcome != 'success'
-        run: exit 1
+          echo "### Build stderr" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat build-err.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload binary artifacts
         uses: actions/upload-artifact@v4
@@ -128,7 +115,17 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        run: cargo test --all-targets
+        shell: bash
+        run: cargo test --all-targets 2>test-err.log
+
+      - name: Show test errors
+        if: failure()
+        shell: bash
+        run: |
+          echo "### Test stderr" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat test-err.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
   flutter:
     name: Flutter Analyze
