@@ -30,6 +30,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install system dependencies (ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpipewire-0.3-dev libclang-dev libssl-dev
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 

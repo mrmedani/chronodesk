@@ -13,9 +13,9 @@ FROM debian:bookworm-slim
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
-        libavcodec61 \
-        libavutil59 \
-        libswscale8 \
+        libavcodec59 \
+        libavutil57 \
+        libswscale6 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/chronodesk /usr/local/bin/
