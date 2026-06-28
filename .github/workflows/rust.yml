@@ -71,30 +71,32 @@ jobs:
 
       - name: Build binary
         shell: bash
-        run: cargo build --release --verbose >build-output.log 2>&1
+        run: cargo build --release >build.log 2>&1
 
       - name: Show build errors
-        if: failure() && hashFiles('build-output.log') != ''
+        if: failure() && hashFiles('build.log') != ''
         shell: bash
         run: |
-          # Put last 30 lines in annotations (actual error)
-          tail -30 build-output.log | while IFS= read -r line; do
+          echo "::error::build log has $(wc -l < build.log) lines"
+          # Extract linker/compiler errors
+          grep -ni 'error:' build.log | tail -10 | while IFS= read -r line; do
             echo "::error::build: $line"
           done
-          # Put line count in annotations too
-          echo "::warning::build log has $(wc -l < build-output.log) lines"
+          grep -ni '= note:' build.log | tail -20 | while IFS= read -r line; do
+            echo "::error::build-note: $line"
+          done
           # Full log in step summary
           echo "### Build output" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat build-output.log >> $GITHUB_STEP_SUMMARY
+          tail -200 build.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload build error log
-        if: failure() && hashFiles('build-output.log') != ''
+        if: failure() && hashFiles('build.log') != ''
         uses: actions/upload-artifact@v4
         with:
           name: build-error-log-${{ matrix.os }}
-          path: build-output.log
+          path: build.log
 
       - name: Upload binary artifacts
         uses: actions/upload-artifact@v4
@@ -139,12 +141,16 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          tail -30 test-output.log | while IFS= read -r line; do
+          echo "::error::test log has $(wc -l < test-output.log) lines"
+          grep -ni 'error:\|FAILED\|panicked at\|thread ' test-output.log | tail -20 | while IFS= read -r line; do
             echo "::error::test: $line"
+          done
+          grep -ni '= note:' test-output.log | tail -20 | while IFS= read -r line; do
+            echo "::error::test-note: $line"
           done
           echo "### Test output" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat test-output.log >> $GITHUB_STEP_SUMMARY
+          tail -200 test-output.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload test error log
