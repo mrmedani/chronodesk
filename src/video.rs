@@ -146,9 +146,7 @@ fn encode_ffmpeg(
     encoder_type: EncoderType,
     pts: i64,
 ) -> Result<Vec<EncodedPacket>> {
-    use ffmpeg_next::{
-        codec, encoder, format as ff, frame, Dictionary, Error as FfmpegError, Packet,
-    };
+    use ffmpeg_next::{codec, encoder, format as ff, frame, Dictionary, Packet};
 
     let encoder_name = encoder_type.name();
 
@@ -228,7 +226,9 @@ fn encode_ffmpeg(
                     codec: "h264",
                 });
             }
-            Err(FfmpegError::EAGAIN) => break,
+            Err(ffmpeg_next::Error::Other {
+                errno: ffmpeg_next::EAGAIN,
+            }) => break,
             Err(e) => return Err(e.into()),
         }
     }
