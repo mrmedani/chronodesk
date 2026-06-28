@@ -146,25 +146,29 @@ fn encode_ffmpeg(
     encoder_type: EncoderType,
     pts: i64,
 ) -> Result<Vec<EncodedPacket>> {
-    use ffmpeg_next::format as ff;
+    use ffmpeg_next::{
+        codec, encoder, format as ff, frame, Dictionary, Error as FfmpegError, Packet,
+    };
 
     let encoder_name = encoder_type.name();
 
-    let codec = ffmpeg_next::encoder::find_by_name(encoder_name)
+    let codec = encoder::find_by_name(encoder_name)
         .or_else(|| {
             tracing::warn!("{encoder_name} not available, falling back to libx264");
-            ffmpeg_next::encoder::find_by_name("libx264")
+            encoder::find_by_name("libx264")
         })
         .ok_or_else(|| {
             anyhow::anyhow!("No H.264 encoder found (install FFmpeg with h264 support)")
         })?;
 
-    let mut video = ffmpeg_next::encoder::new().video()?;
-    video.set_width(width);
-    video.set_height(height);
-    video.set_format(ff::Pixel::YUV420P);
+    let mut enc = codec::context::Context::new_with_codec(codec)
+        .encoder()
+        .video()?;
+    enc.set_width(width);
+    enc.set_height(height);
+    enc.set_format(ff::Pixel::YUV420P);
 
-    let mut opts = ffmpeg_next::Dictionary::new();
+    let mut opts = Dictionary::new();
 
     match encoder_type {
         EncoderType::Nvenc => {
@@ -191,7 +195,7 @@ fn encode_ffmpeg(
         }
     }
 
-    let mut encoder = video.open_as_with(codec, opts)?;
+    let mut encoder = enc.open_with(opts)?;
 
     let mut sws = ffmpeg_next::software::scaling::Context::get(
         ff::Pixel::BGRA,
@@ -203,17 +207,17 @@ fn encode_ffmpeg(
         ffmpeg_next::software::scaling::Flags::BILINEAR,
     )?;
 
-    let mut src = ffmpeg_next::frame::Video::new(ff::Pixel::BGRA, width, height);
+    let mut src = frame::Video::new(ff::Pixel::BGRA, width, height);
     src.data_mut(0).copy_from_slice(bgra_data);
     src.set_pts(Some(pts));
 
-    let mut dst = ffmpeg_next::frame::Video::new(ff::Pixel::YUV420P, width, height);
+    let mut dst = frame::Video::new(ff::Pixel::YUV420P, width, height);
     sws.run(&src, &mut dst)?;
 
     let mut packets = Vec::new();
     encoder.send_frame(&dst)?;
 
-    let mut packet = ffmpeg_next::Packet::empty();
+    let mut packet = Packet::empty();
     loop {
         match encoder.receive_packet(&mut packet) {
             Ok(()) => {
@@ -224,7 +228,7 @@ fn encode_ffmpeg(
                     codec: "h264",
                 });
             }
-            Err(ffmpeg_next::Error::EAGAIN) => break,
+            Err(FfmpegError::EAGAIN) => break,
             Err(e) => return Err(e.into()),
         }
     }
