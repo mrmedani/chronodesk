@@ -1,0 +1,18 @@
+# Flutter
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+pubspec.lock
+
+# Android
+android/
+
+# iOS
+ios/
+
+# IDE
+.idea/
+*.iml
+
+# Build
+build/
