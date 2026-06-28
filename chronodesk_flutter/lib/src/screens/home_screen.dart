@@ -341,27 +341,38 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _performUpdate(String url) {
+    final progressState = ValueNotifier<double>(0.0);
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Downloading Update...'),
-        content: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-            SizedBox(width: 16),
-            Text('Downloading...'),
-          ],
+        content: ValueListenableBuilder<double>(
+          valueListenable: progressState,
+          builder: (ctx, progress, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, value: progress > 0 ? progress : null)),
+                  const SizedBox(width: 16),
+                  Text(progress > 0 ? '${(progress * 100).toInt()}%' : 'Downloading...'),
+                ],
+              ),
+              if (progress > 0) ...[
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: progress),
+              ],
+            ],
+          ),
         ),
       ),
     );
-    downloadUpdateZip().then((zipPath) {
-      Navigator.of(context).pop();
-      applyUpdate(zipPath);
+    downloadAndApplyUpdate((received, total) {
+      progressState.value = received / total;
     }).catchError((e) {
-      Navigator.of(context).pop();
       if (mounted) {
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Update failed: $e')),
         );
