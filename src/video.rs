@@ -159,7 +159,7 @@ fn encode_ffmpeg(
             anyhow::anyhow!("No H.264 encoder found (install FFmpeg with h264 support)")
         })?;
 
-    let mut video = ffmpeg_next::encoder::Encoder::new().video()?;
+    let mut video = ffmpeg_next::encoder::new().video()?;
     video.set_width(width);
     video.set_height(height);
     video.set_format(ff::Pixel::YUV420P);
@@ -195,11 +195,11 @@ fn encode_ffmpeg(
 
     let mut sws = ffmpeg_next::software::scaling::Context::get(
         ff::Pixel::BGRA,
-        width as i32,
-        height as i32,
+        width,
+        height,
         ff::Pixel::YUV420P,
-        width as i32,
-        height as i32,
+        width,
+        height,
         ffmpeg_next::software::scaling::Flags::BILINEAR,
     )?;
 
