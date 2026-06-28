@@ -80,15 +80,16 @@ jobs:
         id: build-lib
         run: cargo build --release --lib 2>build-lib-err.log
 
-      - name: Upload error logs
+      - name: Show build errors as annotations
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-err-logs
-          path: |
-            build-err.log
-            build-lib-err.log
-          if-no-files-found: ignore
+        run: |
+          for f in build-err.log build-lib-err.log; do
+            if [ -f "$f" ]; then
+              while IFS= read -r line; do
+                echo "::error file=src/video.rs,title=build error::$line"
+              done < "$f"
+            fi
+          done
 
       - name: Fail if any build failed
         if: steps.build-bin.outcome != 'success' || steps.build-lib.outcome != 'success'
