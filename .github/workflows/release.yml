@@ -75,25 +75,10 @@ jobs:
           path: dll
 
       - name: Build Flutter
-        shell: cmd
         run: |
           cd chronodesk_flutter
-          flutter pub get > flutter_build.log 2>&1
-          flutter build windows --release >> flutter_build.log 2>&1
-
-      - name: Show Flutter build log
-        if: failure()
-        shell: pwsh
-        run: |
-          $log = "chronodesk_flutter\flutter_build.log"
-          if (Test-Path $log) {
-            $content = Get-Content $log -Tail 50
-            $content | ForEach-Object { echo "::error::flutter: $_" }
-          } else {
-            echo "::error::flutter: build log not found"
-            Get-ChildItem chronodesk_flutter -Depth 1 | Select-Object Name | ForEach-Object { echo "::error::file: $($_.Name)" }
-          }
-          echo "::error::flutter build failed"
+          flutter pub get
+          flutter build windows --release
 
       - name: Copy DLL to output
         run: |
