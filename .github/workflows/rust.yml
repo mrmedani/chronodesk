@@ -71,16 +71,28 @@ jobs:
 
       - name: Build binary
         shell: bash
-        run: cargo build --release 2>build-err.log
+        run: cargo build --release --verbose 2>build-err.log
 
       - name: Show build errors
         if: failure() && hashFiles('build-err.log') != ''
         shell: bash
         run: |
+          # Put in annotations (up to 10 lines)
+          head -10 build-err.log | while IFS= read -r line; do
+            echo "::error::build: $line"
+          done
+          # Full log in step summary
           echo "### Build stderr" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat build-err.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload build error log
+        if: failure() && hashFiles('build-err.log') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-error-log-${{ matrix.os }}
+          path: build-err.log
 
       - name: Upload binary artifacts
         uses: actions/upload-artifact@v4
@@ -111,6 +123,9 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install system dependencies (ubuntu)
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpipewire-0.3-dev libclang-dev libssl-dev libavcodec-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libswresample-dev libswscale-dev libpostproc-dev
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
@@ -122,10 +137,20 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          head -10 test-err.log | while IFS= read -r line; do
+            echo "::error::test: $line"
+          done
           echo "### Test stderr" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat test-err.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload test error log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-error-log
+          path: test-err.log
 
   flutter:
     name: Flutter Analyze
