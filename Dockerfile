@@ -4,7 +4,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
 
-RUN apt-get update && apt-get install -y pkg-config libavcodec-dev libavutil-dev libswscale-dev && \
+RUN apt-get update && apt-get install -y pkg-config libavcodec-dev libavutil-dev libavformat-dev libavdevice-dev libavfilter-dev libswresample-dev libswscale-dev libpostproc-dev && \
     cargo build --release --features ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 

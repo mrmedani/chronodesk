@@ -70,9 +70,29 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build binary
-        run: cargo build --release
+        continue-on-error: true
+        id: build-bin
+        run: cargo build --release 2>build-err.log
+
       - name: Build library (DLL/SO)
-        run: cargo build --release --lib
+        if: steps.build-bin.outcome == 'success'
+        continue-on-error: true
+        id: build-lib
+        run: cargo build --release --lib 2>build-lib-err.log
+
+      - name: Upload error logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-err-logs
+          path: |
+            build-err.log
+            build-lib-err.log
+          if-no-files-found: ignore
+
+      - name: Fail if any build failed
+        if: steps.build-bin.outcome != 'success' || steps.build-lib.outcome != 'success'
+        run: exit 1
 
       - name: Upload binary artifacts
         uses: actions/upload-artifact@v4
