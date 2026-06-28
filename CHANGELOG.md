@@ -5,6 +5,15 @@ All notable changes to CHRONODESK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-06-28
+
+### Fixed
+
+- :arrow_up: Update download now shows progress bar (percentage + linear indicator)
+- :package: Fixed zip extraction — uses .NET ZipFile instead of unreliable PowerShell Expand-Archive
+- :wrench: Update no longer silently fails on paths with spaces
+- :repeat: App now properly restarts after update
+
 ## [0.2.1] - 2026-06-28
 
 ### Fixed
