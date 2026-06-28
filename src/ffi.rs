@@ -139,6 +139,7 @@ pub extern "C" fn chronodesk_init() {
 }
 
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_get_config(key: *const std::ffi::c_char) -> *mut std::ffi::c_char {
     let key = unsafe { CStr::from_ptr(key) }.to_str().unwrap_or("");
     let config = load_config();
@@ -147,6 +148,7 @@ pub extern "C" fn chronodesk_get_config(key: *const std::ffi::c_char) -> *mut st
 }
 
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_set_config(
     key: *const std::ffi::c_char,
     value: *const std::ffi::c_char,
@@ -331,6 +333,7 @@ pub extern "C" fn chronodesk_get_peer_id() -> *mut std::ffi::c_char {
 }
 
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_free_string(ptr: *mut std::ffi::c_char) {
     if !ptr.is_null() {
         unsafe {
@@ -351,6 +354,7 @@ pub extern "C" fn chronodesk_poll_event() -> *mut std::ffi::c_char {
 }
 
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
     let target = unsafe { CStr::from_ptr(peer_id) }
         .to_str()
@@ -405,6 +409,7 @@ pub extern "C" fn chronodesk_disconnect() {
 }
 
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_get_frame(
     out_data: *mut *mut u8,
     out_len: *mut i32,
@@ -431,6 +436,7 @@ pub extern "C" fn chronodesk_get_frame(
 }
 
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_free_frame(ptr: *mut u8) {
     if !ptr.is_null() {
         unsafe {

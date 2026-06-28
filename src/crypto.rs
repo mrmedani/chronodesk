@@ -1,9 +1,8 @@
 use anyhow::Result;
 
+#[allow(dead_code)]
 pub struct Crypto {
-    #[allow(dead_code)]
     key: [u8; 32],
-    #[allow(dead_code)]
     algorithm: &'static str,
 }
 
@@ -21,5 +20,11 @@ impl Crypto {
 
     pub fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
         Ok(data.to_vec())
+    }
+}
+
+impl Default for Crypto {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod capture;
 pub mod crypto;
 pub mod ffi;
