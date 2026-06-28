@@ -71,28 +71,30 @@ jobs:
 
       - name: Build binary
         shell: bash
-        run: cargo build --release --verbose 2>build-err.log
+        run: cargo build --release --verbose >build-output.log 2>&1
 
       - name: Show build errors
-        if: failure() && hashFiles('build-err.log') != ''
+        if: failure() && hashFiles('build-output.log') != ''
         shell: bash
         run: |
-          # Put in annotations (up to 10 lines)
-          head -10 build-err.log | while IFS= read -r line; do
+          # Put last 30 lines in annotations (actual error)
+          tail -30 build-output.log | while IFS= read -r line; do
             echo "::error::build: $line"
           done
+          # Put line count in annotations too
+          echo "::warning::build log has $(wc -l < build-output.log) lines"
           # Full log in step summary
-          echo "### Build stderr" >> $GITHUB_STEP_SUMMARY
+          echo "### Build output" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat build-err.log >> $GITHUB_STEP_SUMMARY
+          cat build-output.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload build error log
-        if: failure() && hashFiles('build-err.log') != ''
+        if: failure() && hashFiles('build-output.log') != ''
         uses: actions/upload-artifact@v4
         with:
           name: build-error-log-${{ matrix.os }}
-          path: build-err.log
+          path: build-output.log
 
       - name: Upload binary artifacts
         uses: actions/upload-artifact@v4
@@ -131,18 +133,18 @@ jobs:
 
       - name: Run tests
         shell: bash
-        run: cargo test --all-targets 2>test-err.log
+        run: cargo test --all-targets >test-output.log 2>&1
 
       - name: Show test errors
         if: failure()
         shell: bash
         run: |
-          head -10 test-err.log | while IFS= read -r line; do
+          tail -30 test-output.log | while IFS= read -r line; do
             echo "::error::test: $line"
           done
-          echo "### Test stderr" >> $GITHUB_STEP_SUMMARY
+          echo "### Test output" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat test-err.log >> $GITHUB_STEP_SUMMARY
+          cat test-output.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload test error log
@@ -150,7 +152,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-error-log
-          path: test-err.log
+          path: test-output.log
 
   flutter:
     name: Flutter Analyze
