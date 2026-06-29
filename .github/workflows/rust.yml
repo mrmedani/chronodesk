@@ -130,4 +130,10 @@ jobs:
         run: cd chronodesk_flutter && flutter pub get
 
       - name: Flutter analyze
-        run: cd chronodesk_flutter && flutter analyze --no-fatal-infos --no-fatal-warnings
+        shell: bash
+        run: |
+          cd chronodesk_flutter
+          flutter analyze --no-fatal-infos --no-fatal-warnings > flutter_analyze.log 2>&1
+          rc=$?
+          while IFS= read -r line; do echo "::error::$line"; done < flutter_analyze.log
+          exit $rc
