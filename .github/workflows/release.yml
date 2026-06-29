@@ -74,49 +74,57 @@ jobs:
           name: chronodesk-x86_64-pc-windows-msvc
           path: dll
 
-      - name: Build Flutter
+      - name: Flutter pub get
+        id: flutter_pub_get
+        continue-on-error: true
+        run: cd chronodesk_flutter && flutter pub get 2>&1
+
+      - name: Flutter build
         id: flutter_build
         continue-on-error: true
+        shell: pwsh
         run: |
           cd chronodesk_flutter
-          flutter pub get
-          flutter build windows --release
+          flutter build windows --release 2>&1 | Tee-Object -FilePath flutter_build.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content flutter_build.log | ForEach-Object { echo "::error::$_" }
+          }
 
       - name: Copy DLL to output
-        if: steps.flutter_build.outcome == 'success'
+        if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
         run: |
           copy dll\chronodesk.dll chronodesk_flutter\build\windows\x64\runner\Release\
 
       - name: Package Flutter as zip
-        if: steps.flutter_build.outcome == 'success'
+        if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
         shell: pwsh
         run: |
           cd chronodesk_flutter\build\windows\x64\runner\Release
           Compress-Archive -Path * -DestinationPath chronodesk_flutter_windows.zip
 
       - name: Install Inno Setup
-        if: steps.flutter_build.outcome == 'success'
+        if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
         shell: pwsh
         run: choco install innosetup --no-progress
 
       - name: Build Windows installer
-        if: steps.flutter_build.outcome == 'success'
+        if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
         shell: pwsh
         run: |
           $env:APP_VERSION = "${{ github.ref_name }}" -replace '^v'
           iscc installer.iss
 
-      - name: Upload Flutter artifact
-        if: steps.flutter_build.outcome == 'success'
+      - name: Upload Flutter artifact (with installer)
+        if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: chronodesk-flutter-windows
           path: |
             chronodesk_flutter\build\windows\x64\runner\Release\chronodesk_flutter_windows.zip
-            installer\chronodesk-*.exe
+            installer/chronodesk-windows-setup.exe
 
       - name: Download Flutter zip from latest release
-        if: steps.flutter_build.outcome != 'success'
+        if: steps.flutter_pub_get.conclusion != 'success' || steps.flutter_build.conclusion != 'success'
         shell: pwsh
         run: |
           $url = "https://github.com/mrmedani/chronodesk/releases/latest/download/chronodesk_flutter_windows.zip"
@@ -124,7 +132,7 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $out
 
       - name: Upload fallback Flutter artifact
-        if: steps.flutter_build.outcome != 'success'
+        if: steps.flutter_pub_get.conclusion != 'success' || steps.flutter_build.conclusion != 'success'
         uses: actions/upload-artifact@v4
         with:
           name: chronodesk-flutter-windows
