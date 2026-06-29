@@ -1,4 +1,5 @@
 use crate::capture::ScreenCapture;
+use crate::logger;
 use crate::network::signaling::{SignalCommand as SigCmd, SignalEvent, SignalingClient};
 use crate::network::transport::{SignalCommand as TrCmd, Transport, TransportEvent};
 use crate::protocol::ChannelMessage;
@@ -127,6 +128,8 @@ fn get_signaling_addr() -> String {
 
 #[no_mangle]
 pub extern "C" fn chronodesk_init() {
+    logger::init();
+    logger::write_log("chronodesk_init started");
     let addr = get_signaling_addr();
     let id = load_or_create_id();
     lock_state().peer_id = id.clone();
@@ -134,6 +137,7 @@ pub extern "C" fn chronodesk_init() {
         r#"{{"type":"init","peer_id":"{}","signaling_addr":"{}"}}"#,
         id, addr
     ));
+    logger::write_log(&format!("init complete — peer_id={id} addr={addr}"));
     rt().spawn(async move {
         run_loop(&addr, &id).await;
     });
@@ -181,6 +185,7 @@ pub extern "C" fn chronodesk_set_config(
 }
 
 async fn run_loop(signaling_addr: &str, my_id: &str) {
+    logger::write_log("run_loop started");
     let (signaling_client, mut signal_events) = SignalingClient::new(signaling_addr, my_id);
     let signaling_tx = signaling_client.channel();
 
@@ -193,6 +198,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
         match Transport::new(my_id, &stun_addr, Some(signaling_tx.clone())).await {
             Ok(t) => t,
             Err(e) => {
+                logger::write_log(&format!("Transport init FAILED: {e}"));
                 push_event(&format!(
                     r#"{{"type":"error","msg":"Transport init: {}"}}"#,
                     e
@@ -203,9 +209,10 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
     let transport_tx = transport.signal_tx();
 
     {
-        let mut s = state().lock().unwrap();
+        let mut s = lock_state();
         s.transport_tx = Some(transport_tx.clone());
         s.signaling_tx = Some(signaling_tx.clone());
+        logger::write_log("transport_tx and signaling_tx stored in state");
     }
 
     tokio::spawn(async move {
@@ -249,12 +256,14 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
                         let was_host = lock_state().is_host;
                         lock_state().connected = true;
                         capture_active = was_host;
+                        logger::write_log(&format!("transport connected — is_host={was_host}"));
                         push_event(r#"{"type":"connected"}"#);
                     }
                     TransportEvent::Disconnected { .. } => {
                         capture_active = false;
                         lock_state().connected = false;
                         lock_state().is_host = false;
+                        logger::write_log("transport disconnected");
                         push_event(r#"{"type":"disconnected"}"#);
                     }
                     TransportEvent::MessageReceived { msg } => {
@@ -297,6 +306,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
                         }
                     }
                     TransportEvent::Error { msg } => {
+                        logger::write_log(&format!("Transport error: {msg}"));
                         push_event(&format!(r#"{{"type":"error","msg":"{}"}}"#, msg));
                     }
                 }
@@ -368,14 +378,18 @@ pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
         .unwrap_or("")
         .to_string();
     if target.is_empty() {
+        logger::write_log("chronodesk_connect called with empty target");
         return;
     }
+    logger::write_log(&format!("chronodesk_connect called — target={target}"));
     rt().spawn(async move {
         let s = lock_state();
         if let Some(ref tx) = s.transport_tx {
+            logger::write_log(&format!("sending CreateOffer to {target}"));
             push_event(&format!(r#"{{"type":"connecting","to":"{}"}}"#, target));
             let _ = tx.send(TrCmd::CreateOffer(target));
         } else {
+            logger::write_log("transport_tx is None — not ready yet");
             push_event(r#"{"type":"error","msg":"Transport not ready — still initializing"}"#);
         }
     });
@@ -470,4 +484,10 @@ pub extern "C" fn chronodesk_send_input_click(button: u8, pressed: bool) {
             pressed,
         }));
     }
+}
+
+#[no_mangle]
+pub extern "C" fn chronodesk_get_log() -> *mut std::ffi::c_char {
+    let log = logger::read_log();
+    CString::new(log).unwrap_or_default().into_raw()
 }

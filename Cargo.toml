@@ -1,6 +1,6 @@
 [package]
 name = "chronodesk"
-version = "0.2.1"
+version = "0.2.8"
 edition = "2021"
 description = "Open-source remote desktop software - AnyDesk alternative"
 

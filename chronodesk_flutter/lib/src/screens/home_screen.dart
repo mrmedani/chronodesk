@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:ffi/ffi.dart';
+import 'package:path_provider/path_provider.dart';
 import '../ffi/native.dart' as native;
 import '../update_checker.dart';
 
@@ -103,6 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           });
         case 'error':
+          _exportLogs();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Error: ${map['msg'] ?? ''}')),
@@ -195,6 +198,21 @@ class _HomeScreenState extends State<HomeScreen> {
     native.chronodeskDisconnect();
   }
 
+  Future<void> _exportLogs() async {
+    final log = native.getLog();
+    if (log.isEmpty) return;
+    try {
+      final dir = Directory(Platform.environment['USERPROFILE'] ?? '${Platform.environment['HOME']}');
+      final file = File('${dir.path}\\Desktop\\chronodesk_crash_${DateTime.now().millisecondsSinceEpoch}.log');
+      await file.writeAsString(log);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Log saved to ${file.path}')),
+        );
+      }
+    } catch (_) {}
+  }
+
   void _showSettings() {
     _addrController.text = native.getConfig('signaling_addr');
     if (_addrController.text.isEmpty) _addrController.text = '144.24.201.196:21116';
@@ -231,6 +249,14 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () => _checkUpdate(ctx),
               icon: const Icon(Icons.system_update, size: 18),
               label: const Text('Check for Updates'),
+            ),
+            const SizedBox(height: 4),
+            TextButton.icon(
+              onPressed: () {
+                _exportLogs();
+              },
+              icon: const Icon(Icons.bug_report, size: 18),
+              label: const Text('Export Crash Logs'),
             ),
           ],
         ),

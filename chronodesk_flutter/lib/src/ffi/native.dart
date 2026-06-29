@@ -76,6 +76,10 @@ final chronodeskSendInputMove = _lib.lookupFunction<
     Void Function(Int32, Int32),
     void Function(int, int)>('chronodesk_send_input_move');
 
+final chronodeskGetLog = _lib.lookupFunction<
+    Pointer<Utf8> Function(),
+    Pointer<Utf8> Function()>('chronodesk_get_log');
+
 final chronodeskSendInputClick = _lib.lookupFunction<
     Void Function(Uint8, Bool),
     void Function(int, bool)>('chronodesk_send_input_click');
@@ -97,6 +101,11 @@ String? pollEvent() {
   final s = _readCString(ptr);
   if (s != null && s.isEmpty) return null;
   return s;
+}
+
+String getLog() {
+  final ptr = chronodeskGetLog();
+  return _readCString(ptr) ?? '';
 }
 
 bool getFrame(Pointer<Pointer<Uint8>> data, Pointer<Int32> len,
