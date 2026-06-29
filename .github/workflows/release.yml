@@ -153,9 +153,13 @@ jobs:
       - name: Generate checksums
         shell: bash
         run: |
-          find . -maxdepth 1 -type d -name 'chronodesk*' | while IFS= read -r dir; do
-            dir="${dir#./}"
-            (cd "$dir" && find . -maxdepth 1 -type f ! -name '*.sha256' -exec sha256sum {} + > "../${dir}.sha256") 2>/dev/null || true
+          for d in chronodesk-* chronodesk-flutter-windows; do
+            [ -d "$d" ] || continue
+            out="${d}.sha256"
+            (cd "$d" && find . -maxdepth 1 -type f -exec sha256sum {} +) > "$out" 2>/dev/null
+            if [ ! -s "$out" ]; then
+              echo "# empty" > "$out"
+            fi
           done
 
       - name: Create GitHub Release
