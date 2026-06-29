@@ -117,14 +117,18 @@ async fn handle_connection(
                 if let Some(peer) = peers.get(&to) {
                     let _ = peer.send(SignalMessage::Offer { from, to, sdp });
                 } else if let Some(peer) = peers.get(&from) {
-                    let _ = peer.send(SignalMessage::Error { msg: format!("Peer {to} not found") });
+                    let _ = peer.send(SignalMessage::Error {
+                        msg: format!("Peer {to} not found"),
+                    });
                 }
             }
             SignalMessage::Answer { from, to, sdp } => {
                 if let Some(peer) = peers.get(&to) {
                     let _ = peer.send(SignalMessage::Answer { from, to, sdp });
                 } else if let Some(peer) = peers.get(&from) {
-                    let _ = peer.send(SignalMessage::Error { msg: format!("Peer {to} not found") });
+                    let _ = peer.send(SignalMessage::Error {
+                        msg: format!("Peer {to} not found"),
+                    });
                 }
             }
             SignalMessage::IceCandidate {
