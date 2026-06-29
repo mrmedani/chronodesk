@@ -114,14 +114,20 @@ jobs:
           $env:APP_VERSION = "${{ github.ref_name }}" -replace '^v'
           iscc installer.iss
 
-      - name: Upload Flutter artifact (with installer)
+      - name: Stage installer & zip
+        if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
+        shell: pwsh
+        run: |
+          mkdir upload -Force
+          copy "chronodesk_flutter\build\windows\x64\runner\Release\chronodesk_flutter_windows.zip" upload\
+          copy "installer\chronodesk-windows-setup.exe" upload\
+
+      - name: Upload Flutter artifact
         if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: chronodesk-flutter-windows
-          path: |
-            chronodesk_flutter\build\windows\x64\runner\Release\chronodesk_flutter_windows.zip
-            installer/chronodesk-windows-setup.exe
+          path: upload/*
 
       - name: Download Flutter zip from latest release
         if: steps.flutter_pub_get.conclusion != 'success' || steps.flutter_build.conclusion != 'success'
@@ -153,13 +159,13 @@ jobs:
       - name: Generate checksums
         shell: bash
         run: |
-          for d in chronodesk-* chronodesk-flutter-windows; do
-            [ -d "$d" ] || continue
-            out="${d}.sha256"
-            (cd "$d" && find . -maxdepth 1 -type f -exec sha256sum {} +) > "$out" 2>/dev/null
-            if [ ! -s "$out" ]; then
-              echo "# empty" > "$out"
-            fi
+          for d in */; do
+            d="${d%/}"
+            case "$d" in chronodesk-*)
+              out="${d}.sha256"
+              (cd "$d" && find . -type f -exec sha256sum {} +) > "$out" 2>/dev/null || true
+              [ -s "$out" ] || echo "# empty" > "$out"
+            esac
           done
 
       - name: Create GitHub Release
@@ -168,8 +174,7 @@ jobs:
           name: Release ${{ github.ref_name }}
           body_path: CHANGELOG.md
           files: |
-            chronodesk-*/*
-            chronodesk-flutter-windows/*
+            chronodesk-*/**/*
             *.sha256
           draft: false
           prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}
