@@ -21,12 +21,14 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _connected = false;
   bool _isHost = false;
   bool _connecting = false;
+  bool _updateDialogOpen = false;
   ui.Image? _frameImage;
   int _frameW = 0;
   int _frameH = 0;
   Timer? _pollTimer;
   Timer? _frameTimer;
   Timer? _connectTimer;
+  Timer? _updateTimer;
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _addrController = TextEditingController();
 
@@ -42,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {});
     });
     Future.delayed(const Duration(seconds: 2), _autoCheckUpdate);
+    _updateTimer = Timer.periodic(const Duration(minutes: 30), (_) => _autoCheckUpdate());
     _pollTimer = Timer.periodic(const Duration(milliseconds: 50), (_) => _pollEvents());
     _frameTimer = Timer.periodic(const Duration(milliseconds: 33), (_) => _pollFrame());
   }
@@ -51,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _pollTimer?.cancel();
     _frameTimer?.cancel();
     _connectTimer?.cancel();
+    _updateTimer?.cancel();
     _idController.dispose();
     _addrController.dispose();
     super.dispose();
@@ -252,8 +256,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _autoCheckUpdate() {
+    if (_updateDialogOpen) return;
     checkForUpdate().then((update) {
       if (!mounted || update == null) return;
+      _updateDialogOpen = true;
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -264,9 +270,13 @@ class _HomeScreenState extends State<HomeScreen> {
           ]),
           content: Text('A new version is available. Download and install now?'),
           actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Later')),
+            TextButton(onPressed: () {
+              _updateDialogOpen = false;
+              Navigator.of(ctx).pop();
+            }, child: const Text('Later')),
             FilledButton.icon(
               onPressed: () {
+                _updateDialogOpen = false;
                 Navigator.of(ctx).pop();
                 _performUpdate(update.url);
               },
