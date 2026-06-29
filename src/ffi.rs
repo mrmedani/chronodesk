@@ -363,11 +363,13 @@ pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
     if target.is_empty() {
         return;
     }
-    push_event(&format!(r#"{{"type":"connecting","to":"{}"}}"#, target));
     rt().spawn(async move {
         let s = state().lock().unwrap();
         if let Some(ref tx) = s.transport_tx {
+            push_event(&format!(r#"{{"type":"connecting","to":"{}"}}"#, target));
             let _ = tx.send(TrCmd::CreateOffer(target));
+        } else {
+            push_event(r#"{"type":"error","msg":"Transport not ready — still initializing"}"#);
         }
     });
 }

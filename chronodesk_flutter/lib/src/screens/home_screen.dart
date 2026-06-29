@@ -26,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _frameH = 0;
   Timer? _pollTimer;
   Timer? _frameTimer;
+  Timer? _connectTimer;
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _addrController = TextEditingController();
 
@@ -49,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _pollTimer?.cancel();
     _frameTimer?.cancel();
+    _connectTimer?.cancel();
     _idController.dispose();
     _addrController.dispose();
     super.dispose();
@@ -72,18 +74,30 @@ class _HomeScreenState extends State<HomeScreen> {
           final from = map['from'] as String? ?? '';
           if (mounted) _showConnectionRequest(from);
         case 'connected':
+          _connectTimer?.cancel();
           setState(() {
             _connected = true;
             _connecting = false;
           });
         case 'disconnected':
+          _connectTimer?.cancel();
           setState(() {
             _connected = false;
             _isHost = false;
+            _connecting = false;
             _frameImage = null;
           });
         case 'connecting':
           setState(() => _connecting = true);
+          _connectTimer?.cancel();
+          _connectTimer = Timer(const Duration(seconds: 30), () {
+            if (!mounted) return;
+            native.chronodeskDisconnect();
+            setState(() => _connecting = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Connection timeout: peer unreachable')),
+            );
+          });
         case 'error':
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
