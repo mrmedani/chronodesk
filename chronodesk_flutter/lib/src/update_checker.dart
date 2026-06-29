@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 const _repo = 'mrmedani/chronodesk';
-const currentVersion = '0.2.4';
+const currentVersion = '0.2.5';
 
 class UpdateInfo {
   final String version;
@@ -84,8 +84,7 @@ void _replaceFiles(String zipPath) {
   final tmpExtract = '${Directory.systemTemp.path}\\chronodesk_extract';
 
   final ps = '''
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::ExtractToDirectory('$zipPath', '$tmpExtract', \$true)
+Expand-Archive -Force -LiteralPath "$zipPath" -DestinationPath "$tmpExtract"
 ''';
 
   final result = Process.runSync('powershell', ['-Command', ps]);
