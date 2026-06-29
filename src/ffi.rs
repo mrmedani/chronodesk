@@ -142,7 +142,9 @@ pub extern "C" fn chronodesk_init() {
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_get_config(key: *const std::ffi::c_char) -> *mut std::ffi::c_char {
-    if key.is_null() { return CString::new("").unwrap_or_default().into_raw(); }
+    if key.is_null() {
+        return CString::new("").unwrap_or_default().into_raw();
+    }
     let key = unsafe { CStr::from_ptr(key) }.to_str().unwrap_or("");
     let config = load_config();
     let val = config.get(key).and_then(|v| v.as_str()).unwrap_or("");
@@ -155,7 +157,9 @@ pub extern "C" fn chronodesk_set_config(
     key: *const std::ffi::c_char,
     value: *const std::ffi::c_char,
 ) {
-    if key.is_null() || value.is_null() { return; }
+    if key.is_null() || value.is_null() {
+        return;
+    }
     let key = unsafe { CStr::from_ptr(key) }
         .to_str()
         .unwrap_or("")
@@ -356,7 +360,9 @@ pub extern "C" fn chronodesk_poll_event() -> *mut std::ffi::c_char {
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
-    if peer_id.is_null() { return; }
+    if peer_id.is_null() {
+        return;
+    }
     let target = unsafe { CStr::from_ptr(peer_id) }
         .to_str()
         .unwrap_or("")
