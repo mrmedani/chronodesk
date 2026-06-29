@@ -94,12 +94,26 @@ jobs:
           cd chronodesk_flutter\build\windows\x64\runner\Release
           Compress-Archive -Path * -DestinationPath chronodesk_flutter_windows.zip
 
+      - name: Install Inno Setup
+        if: steps.flutter_build.outcome == 'success'
+        shell: pwsh
+        run: choco install innosetup --no-progress
+
+      - name: Build Windows installer
+        if: steps.flutter_build.outcome == 'success'
+        shell: pwsh
+        run: |
+          $env:APP_VERSION = "${{ github.ref_name }}" -replace '^v'
+          iscc installer.iss
+
       - name: Upload Flutter artifact
         if: steps.flutter_build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: chronodesk-flutter-windows
-          path: chronodesk_flutter\build\windows\x64\runner\Release\chronodesk_flutter_windows.zip
+          path: |
+            chronodesk_flutter\build\windows\x64\runner\Release\chronodesk_flutter_windows.zip
+            installer\chronodesk-*.exe
 
       - name: Download Flutter zip from latest release
         if: steps.flutter_build.outcome != 'success'

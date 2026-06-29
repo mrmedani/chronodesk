@@ -8,7 +8,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPLv3-blue.svg" alt="License" /></a>
     <a href="https://github.com/mrmedani/chronodesk/issues"><img src="https://img.shields.io/github/issues/mrmedani/chronodesk?logo=github" alt="Issues" /></a>
     <br/>
-    <a href="https://github.com/mrmedani/chronodesk/releases/latest/download/chronodesk_flutter_windows.zip"><img src="https://img.shields.io/badge/Download-Windows-blue?logo=windows&style=for-the-badge" alt="Download for Windows" /></a>
+    <a href="https://github.com/mrmedani/chronodesk/releases/latest/download/chronodesk-windows-setup.exe"><img src="https://img.shields.io/badge/Download%20Installer-Windows-blue?logo=windows&style=for-the-badge" alt="Download Windows Installer" /></a>
     <br/>
     <img src="https://img.shields.io/badge/Rust-1.83%2B-orange?logo=rust" alt="Rust" />
     <img src="https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter" alt="Flutter" />
