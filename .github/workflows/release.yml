@@ -153,13 +153,9 @@ jobs:
       - name: Generate checksums
         shell: bash
         run: |
-          ls -la
-          echo "=== Artifact dirs ==="
-          find . -maxdepth 1 -type d -name 'chronodesk*' | while read dir; do
-            echo "Processing $dir"
-            if [ -d "$dir" ]; then
-              (cd "$dir" && ls -la && sha256sum * 2>/dev/null > "../${dir#./}.sha256" || echo "No files in $dir")
-            fi
+          find . -maxdepth 1 -type d -name 'chronodesk*' | while IFS= read -r dir; do
+            dir="${dir#./}"
+            (cd "$dir" && find . -maxdepth 1 -type f ! -name '*.sha256' -exec sha256sum {} + > "../${dir}.sha256") 2>/dev/null || true
           done
 
       - name: Create GitHub Release
