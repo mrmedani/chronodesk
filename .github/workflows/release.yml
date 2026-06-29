@@ -151,12 +151,16 @@ jobs:
         uses: actions/download-artifact@v4
 
       - name: Generate checksums
+        shell: bash
         run: |
-          for dir in chronodesk-*/; do
-            (cd "$dir" && sha256sum * > "../${dir%/}.sha256")
+          ls -la
+          echo "=== Artifact dirs ==="
+          find . -maxdepth 1 -type d -name 'chronodesk*' | while read dir; do
+            echo "Processing $dir"
+            if [ -d "$dir" ]; then
+              (cd "$dir" && ls -la && sha256sum * 2>/dev/null > "../${dir#./}.sha256" || echo "No files in $dir")
+            fi
           done
-          cd chronodesk-flutter-windows
-          sha256sum * > "../chronodesk-flutter-windows.sha256"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
