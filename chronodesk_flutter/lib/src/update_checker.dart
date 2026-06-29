@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 const _repo = 'mrmedani/chronodesk';
-const currentVersion = '0.2.2';
+const currentVersion = '0.2.3';
 
 class UpdateInfo {
   final String version;
