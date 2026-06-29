@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 
 const _repo = 'mrmedani/chronodesk';
 const currentVersion = '0.2.2';
@@ -100,11 +101,11 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
   void copyRecursively(Directory dir, String destPath) {
     for (final entry in dir.listSync()) {
       if (entry is File) {
-        final dest = File('$destPath\\${entry.name}');
+        final dest = File(p.join(destPath, p.basename(entry.path)));
         dest.parent.createSync(recursive: true);
         entry.copySync(dest.path);
       } else if (entry is Directory) {
-        copyRecursively(entry, '$destPath\\${entry.name}');
+        copyRecursively(entry, p.join(destPath, p.basename(entry.path)));
       }
     }
   }
