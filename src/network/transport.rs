@@ -187,10 +187,17 @@ impl Transport {
                         }
                     }
                     SignalCommand::HandleAnswer(_from, sdp) => {
-                        let desc = RTCSessionDescription::answer(sdp).unwrap();
-                        if let Err(e) = pc_clone.set_remote_description(desc).await {
-                            let _ = event_tx_for_signal
-                                .send(TransportEvent::Error { msg: e.to_string() });
+                        match RTCSessionDescription::answer(sdp) {
+                            Ok(desc) => {
+                                if let Err(e) = pc_clone.set_remote_description(desc).await {
+                                    let _ = event_tx_for_signal
+                                        .send(TransportEvent::Error { msg: e.to_string() });
+                                }
+                            }
+                            Err(e) => {
+                                let _ = event_tx_for_signal
+                                    .send(TransportEvent::Error { msg: e.to_string() });
+                            }
                         }
                     }
                     SignalCommand::HandleIceCandidate(

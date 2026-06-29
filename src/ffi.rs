@@ -48,10 +48,12 @@ fn state() -> &'static Mutex<AppState> {
     })
 }
 
+fn lock_state() -> std::sync::MutexGuard<'static, AppState> {
+    state().lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn push_event(json: &str) {
-    if let Ok(mut s) = state().lock() {
-        s.events.push(json.to_string());
-    }
+    lock_state().events.push(json.to_string());
 }
 
 fn load_or_create_id() -> String {
@@ -106,7 +108,9 @@ fn load_config() -> serde_json::Value {
 
 fn save_config(config: &serde_json::Value) {
     let path = config_path();
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     if let Ok(s) = serde_json::to_string(config) {
         let _ = std::fs::write(&path, &s);
     }
@@ -125,10 +129,7 @@ fn get_signaling_addr() -> String {
 pub extern "C" fn chronodesk_init() {
     let addr = get_signaling_addr();
     let id = load_or_create_id();
-    {
-        let mut s = state().lock().unwrap();
-        s.peer_id = id.clone();
-    }
+    lock_state().peer_id = id.clone();
     push_event(&format!(
         r#"{{"type":"init","peer_id":"{}","signaling_addr":"{}"}}"#,
         id, addr
@@ -141,6 +142,7 @@ pub extern "C" fn chronodesk_init() {
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_get_config(key: *const std::ffi::c_char) -> *mut std::ffi::c_char {
+    if key.is_null() { return CString::new("").unwrap_or_default().into_raw(); }
     let key = unsafe { CStr::from_ptr(key) }.to_str().unwrap_or("");
     let config = load_config();
     let val = config.get(key).and_then(|v| v.as_str()).unwrap_or("");
@@ -153,6 +155,7 @@ pub extern "C" fn chronodesk_set_config(
     key: *const std::ffi::c_char,
     value: *const std::ffi::c_char,
 ) {
+    if key.is_null() || value.is_null() { return; }
     let key = unsafe { CStr::from_ptr(key) }
         .to_str()
         .unwrap_or("")
@@ -162,6 +165,9 @@ pub extern "C" fn chronodesk_set_config(
         .unwrap_or("")
         .to_string();
     let mut config = load_config();
+    if !config.is_object() {
+        config = serde_json::json!({});
+    }
     config[&key] = serde_json::json!(&value);
     save_config(&config);
     push_event(&format!(
@@ -213,15 +219,12 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
             Some(event) = signal_events.recv() => {
                 match event {
                     SignalEvent::Offer { from, sdp } => {
-                        let s = state().lock().unwrap();
+                        let s = lock_state();
                         if s.connected || s.pending_offer.is_some() {
                             continue;
                         }
                         drop(s);
-                        {
-                            let mut s2 = state().lock().unwrap();
-                            s2.pending_offer = Some((from.clone(), sdp));
-                        }
+                        lock_state().pending_offer = Some((from.clone(), sdp));
                         push_event(&format!(r#"{{"type":"connection_request","from":"{}"}}"#, from));
                     }
                     SignalEvent::Answer { from, sdp } => {
@@ -239,18 +242,15 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
             Some(event) = transport_events.recv() => {
                 match event {
                     TransportEvent::Connected { .. } => {
-                        let mut s = state().lock().unwrap();
-                        s.connected = true;
-                        capture_active = s.is_host;
+                        let was_host = lock_state().is_host;
+                        lock_state().connected = true;
+                        capture_active = was_host;
                         push_event(r#"{"type":"connected"}"#);
                     }
                     TransportEvent::Disconnected { .. } => {
                         capture_active = false;
-                        {
-                            let mut s = state().lock().unwrap();
-                            s.connected = false;
-                            s.is_host = false;
-                        }
+                        lock_state().connected = false;
+                        lock_state().is_host = false;
                         push_event(r#"{"type":"disconnected"}"#);
                     }
                     TransportEvent::MessageReceived { msg } => {
@@ -262,7 +262,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
                                     Vec::new()
                                 };
                                 if !rgba.is_empty() {
-                                    let mut s = state().lock().unwrap();
+                                    let mut s = lock_state();
                                     s.frame_rgba = rgba;
                                     s.frame_width = width;
                                     s.frame_height = height;
@@ -356,6 +356,7 @@ pub extern "C" fn chronodesk_poll_event() -> *mut std::ffi::c_char {
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
+    if peer_id.is_null() { return; }
     let target = unsafe { CStr::from_ptr(peer_id) }
         .to_str()
         .unwrap_or("")
@@ -364,7 +365,7 @@ pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
         return;
     }
     rt().spawn(async move {
-        let s = state().lock().unwrap();
+        let s = lock_state();
         if let Some(ref tx) = s.transport_tx {
             push_event(&format!(r#"{{"type":"connecting","to":"{}"}}"#, target));
             let _ = tx.send(TrCmd::CreateOffer(target));
@@ -376,35 +377,28 @@ pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
 
 #[no_mangle]
 pub extern "C" fn chronodesk_accept() {
-    let pending = state()
-        .lock()
-        .map(|mut s| s.pending_offer.take())
-        .ok()
-        .flatten();
+    let pending = lock_state().pending_offer.take();
     if let Some((from, sdp)) = pending {
-        let mut s = state().lock().unwrap();
-        s.is_host = true;
-        if let Some(ref tx) = s.transport_tx {
+        lock_state().is_host = true;
+        let tx = lock_state().transport_tx.clone();
+        if let Some(ref tx) = tx {
             let _ = tx.send(TrCmd::HandleOffer(from, sdp));
         }
-        drop(s);
         push_event(r#"{"type":"accepted"}"#);
     }
 }
 
 #[no_mangle]
 pub extern "C" fn chronodesk_deny() {
-    let _ = state().lock().map(|mut s| {
-        s.pending_offer = None;
-    });
+    lock_state().pending_offer = None;
     push_event(r#"{"type":"denied"}"#);
 }
 
 #[no_mangle]
 pub extern "C" fn chronodesk_disconnect() {
     rt().spawn(async {
-        let s = state().lock().unwrap();
-        if let Some(ref tx) = s.transport_tx {
+        let tx = lock_state().transport_tx.clone();
+        if let Some(ref tx) = tx {
             let _ = tx.send(TrCmd::Disconnect);
         }
     });
@@ -418,20 +412,26 @@ pub extern "C" fn chronodesk_get_frame(
     out_width: *mut i32,
     out_height: *mut i32,
 ) -> i32 {
-    let mut s = state().lock().unwrap();
+    if out_data.is_null() || out_len.is_null() || out_width.is_null() || out_height.is_null() {
+        return 0;
+    }
+    let mut s = lock_state();
     if !s.frame_ready {
         return 0;
     }
-    let len = s.frame_rgba.len() as i32;
-    let width = s.frame_width as i32;
-    let height = s.frame_height as i32;
+    let len = s.frame_rgba.len();
+    let width = s.frame_width;
+    let height = s.frame_height;
     unsafe {
-        let ptr = libc::malloc(len as usize) as *mut u8;
-        std::ptr::copy_nonoverlapping(s.frame_rgba.as_ptr(), ptr, len as usize);
+        let ptr = libc::malloc(len) as *mut u8;
+        if ptr.is_null() {
+            return 0;
+        }
+        std::ptr::copy_nonoverlapping(s.frame_rgba.as_ptr(), ptr, len);
         *out_data = ptr;
-        *out_len = len;
-        *out_width = width;
-        *out_height = height;
+        *out_len = len as i32;
+        *out_width = width as i32;
+        *out_height = height as i32;
     }
     s.frame_ready = false;
     1
@@ -449,16 +449,16 @@ pub extern "C" fn chronodesk_free_frame(ptr: *mut u8) {
 
 #[no_mangle]
 pub extern "C" fn chronodesk_send_input_move(x: i32, y: i32) {
-    let s = state().lock().unwrap();
-    if let Some(ref tx) = s.transport_tx {
+    let tx = lock_state().transport_tx.clone();
+    if let Some(ref tx) = tx {
         let _ = tx.send(TrCmd::SendMessage(ChannelMessage::InputMove { x, y }));
     }
 }
 
 #[no_mangle]
 pub extern "C" fn chronodesk_send_input_click(button: u8, pressed: bool) {
-    let s = state().lock().unwrap();
-    if let Some(ref tx) = s.transport_tx {
+    let tx = lock_state().transport_tx.clone();
+    if let Some(ref tx) = tx {
         let _ = tx.send(TrCmd::SendMessage(ChannelMessage::InputClick {
             button,
             pressed,
