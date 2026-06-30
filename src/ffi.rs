@@ -144,7 +144,9 @@ pub extern "C" fn chronodesk_init() {
         logger::write_log("run_loop starting");
         if let Err(e) = run_loop(&addr2, &id2).await {
             logger::write_log(&format!("run_loop exited with error: {e}"));
-            push_event(&format!(r#"{{"type":"error","msg":"Internal error: {e}"}}"#));
+            push_event(&format!(
+                r#"{{"type":"error","msg":"Internal error: {e}"}}"#
+            ));
         } else {
             logger::write_log("run_loop exited cleanly");
         }

@@ -51,7 +51,7 @@ pub fn init() {
                 .as_secs();
             let dest = format!("{desk}\\chronodesk_crash_{ts}.log");
             let _ = std::fs::write(&dest, &log);
-            let _ = std::fs::write(&dest.replace(".log", "_panic.txt"), &full);
+            let _ = std::fs::write(dest.replace(".log", "_panic.txt"), &full);
         }
     }));
 }

@@ -18,7 +18,7 @@ RUN apt-get update && \
         libswscale6 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/chronodesk /usr/local/bin/
+COPY --from=builder /app/target/release/chronodesk-bin /usr/local/bin/chronodesk
 COPY --from=builder /app/target/release/signaling-server /usr/local/bin/
 
 EXPOSE 21116
