@@ -24,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isHost = false;
   bool _connecting = false;
   bool _updateDialogOpen = false;
+  bool _isUpdating = false;
   ui.Image? _frameImage;
   int _frameW = 0;
   int _frameH = 0;
@@ -294,33 +295,37 @@ class _HomeScreenState extends State<HomeScreen> {
     checkForUpdate().then((update) {
       if (!mounted || update == null) return;
       _updateDialogOpen = true;
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Row(children: [
-            Icon(Icons.system_update, color: Colors.cyan.shade300, size: 22),
-            const SizedBox(width: 8),
-            Text('Update v${update.version}'),
-          ]),
-          content: Text('A new version is available. Download and install now?'),
-          actions: [
-            TextButton(onPressed: () {
-              _updateDialogOpen = false;
-              Navigator.of(ctx).pop();
-            }, child: const Text('Later')),
-            FilledButton.icon(
-              onPressed: () {
+      try {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Row(children: [
+              Icon(Icons.system_update, color: Colors.cyan.shade300, size: 22),
+              const SizedBox(width: 8),
+              Text('Update v${update.version}'),
+            ]),
+            content: Text('A new version is available. Download and install now?'),
+            actions: [
+              TextButton(onPressed: () {
                 _updateDialogOpen = false;
                 Navigator.of(ctx).pop();
-                _performUpdate(update.url);
-              },
-              icon: const Icon(Icons.download, size: 18),
-              label: const Text('Update'),
-            ),
-          ],
-        ),
-      );
-    });
+              }, child: const Text('Later')),
+              FilledButton.icon(
+                onPressed: () {
+                  _updateDialogOpen = false;
+                  Navigator.of(ctx).pop();
+                  _performUpdate();
+                },
+                icon: const Icon(Icons.download, size: 18),
+                label: const Text('Update'),
+              ),
+            ],
+          ),
+        );
+      } catch (_) {
+        _updateDialogOpen = false;
+      }
+    }).catchError((_) {});
   }
 
   void _checkUpdate(BuildContext settingsCtx) {
@@ -340,14 +345,14 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     checkForUpdate().then((update) {
-      Navigator.of(settingsCtx).pop();
+      if (mounted) Navigator.of(settingsCtx).pop();
       if (update == null) {
         if (mounted) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
               title: const Text('Up to Date'),
-              content:             Text('CHRONODESK v$currentVersion is the latest version.'),
+              content: Text('CHRONODESK v$currentVersion is the latest version.'),
               actions: [FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
             ),
           );
@@ -379,7 +384,7 @@ class _HomeScreenState extends State<HomeScreen> {
             FilledButton.icon(
               onPressed: () {
                 Navigator.of(ctx).pop();
-                _performUpdate(update.url);
+                _performUpdate();
               },
               icon: const Icon(Icons.download, size: 18),
               label: const Text('Download Update'),
@@ -388,8 +393,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }).catchError((_) {
-      Navigator.of(settingsCtx).pop();
       if (mounted) {
+        if (settingsCtx.mounted) Navigator.of(settingsCtx).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to check for updates. Check your internet connection.')),
         );
@@ -397,7 +402,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _performUpdate(String url) {
+  void _performUpdate() {
+    if (_isUpdating) return;
+    _isUpdating = true;
     final progressState = ValueNotifier<double>(0.0);
     showDialog(
       context: context,
@@ -427,7 +434,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     downloadAndApplyUpdate((received, total) {
       progressState.value = received / total;
+    }).then((_) {
+      _isUpdating = false;
     }).catchError((e) {
+      _isUpdating = false;
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
