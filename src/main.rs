@@ -1,14 +1,12 @@
-mod capture;
-mod input;
-mod network;
-mod protocol;
-mod video;
-
 use anyhow::Result;
+use chronodesk::capture::ScreenCapture;
+use chronodesk::input::InputController;
+use chronodesk::network::signaling::SignalEvent;
+use chronodesk::network::signaling::SignalingClient;
+use chronodesk::network::transport::{Transport, TransportEvent};
+use chronodesk::protocol::ChannelMessage;
+use chronodesk::video::{EncoderType, VideoEncoder};
 use clap::Parser;
-use network::signaling::SignalEvent;
-use network::transport::{Transport, TransportEvent};
-use protocol::ChannelMessage;
 
 #[derive(Parser)]
 #[command(name = "CHRONODESK")]
@@ -62,8 +60,7 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
 
     tracing::info!("CHRONODESK host starting as: {my_id}");
 
-    let (signaling, mut signal_events) =
-        network::signaling::SignalingClient::new(signaling_addr, &my_id);
+    let (signaling, mut signal_events) = SignalingClient::new(signaling_addr, &my_id);
 
     let (transport, mut transport_events) = Transport::new(
         &my_id,
@@ -78,8 +75,8 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
         }
     });
 
-    let mut capture = capture::ScreenCapture::new()?;
-    let mut encoder = video::VideoEncoder::new(video::EncoderType::Auto, 1920, 1080)?;
+    let mut capture = ScreenCapture::new()?;
+    let mut encoder = VideoEncoder::new(EncoderType::Auto, 1920, 1080)?;
     let mut connected = false;
 
     loop {
@@ -149,8 +146,7 @@ async fn run_client(
 
     tracing::info!("CHRONODESK client starting as: {my_id}");
 
-    let (signaling, mut signal_events) =
-        network::signaling::SignalingClient::new(signaling_addr, &my_id);
+    let (signaling, mut signal_events) = SignalingClient::new(signaling_addr, &my_id);
 
     let (mut transport, mut transport_events) = Transport::new(
         &my_id,
@@ -220,11 +216,11 @@ fn trace_signal_event(event: &SignalEvent) {
 async fn handle_host_message(msg: ChannelMessage) -> Result<()> {
     match msg {
         ChannelMessage::InputMove { x, y } => {
-            let mut inp = input::InputController::new()?;
+            let mut inp = InputController::new()?;
             inp.mouse_move(x, y)?;
         }
         ChannelMessage::InputClick { button, pressed } => {
-            let mut inp = input::InputController::new()?;
+            let mut inp = InputController::new()?;
             if pressed {
                 inp.mouse_down(button)?;
             } else {

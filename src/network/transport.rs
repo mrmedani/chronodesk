@@ -42,7 +42,7 @@ pub(crate) enum SignalCommand {
 }
 
 impl Transport {
-    pub(crate) async fn new(
+    pub async fn new(
         peer_id: &str,
         stun_addr: &str,
         signaling_tx: Option<mpsc::UnboundedSender<SignalingCommand>>,

@@ -54,8 +54,7 @@ pub enum SignalEvent {
     Error(String),
 }
 
-#[allow(dead_code)]
-pub(crate) enum SignalCommand {
+pub enum SignalCommand {
     SendOffer {
         to: String,
         sdp: String,
@@ -97,8 +96,7 @@ impl SignalingClient {
         )
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn channel(&self) -> mpsc::UnboundedSender<SignalCommand> {
+    pub fn channel(&self) -> mpsc::UnboundedSender<SignalCommand> {
         self.cmd_tx.clone()
     }
 

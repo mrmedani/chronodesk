@@ -32,7 +32,7 @@ default = []
 ffmpeg = ["ffmpeg-next"]
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "lib"]
 
 [[bin]]
 name = "chronodesk-bin"

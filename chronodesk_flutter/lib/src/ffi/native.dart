@@ -30,39 +30,39 @@ final chronodeskInit = _nativeLib.lookupFunction<
     Void Function(),
     void Function()>('chronodesk_init');
 
-final chronodeskGetPeerId = _lib.lookupFunction<
+final chronodeskGetPeerId = _nativeLib.lookupFunction<
     Pointer<Utf8> Function(),
     Pointer<Utf8> Function()>('chronodesk_get_peer_id');
 
-final chronodeskFreeString = _lib.lookupFunction<
+final chronodeskFreeString = _nativeLib.lookupFunction<
     Void Function(Pointer<Utf8>),
     void Function(Pointer<Utf8>)>('chronodesk_free_string');
 
-final chronodeskPollEvent = _lib.lookupFunction<
+final chronodeskPollEvent = _nativeLib.lookupFunction<
     Pointer<Utf8> Function(),
     Pointer<Utf8> Function()>('chronodesk_poll_event');
 
-final chronodeskConnect = _lib.lookupFunction<
+final chronodeskConnect = _nativeLib.lookupFunction<
     Void Function(Pointer<Utf8>),
     void Function(Pointer<Utf8>)>('chronodesk_connect');
 
-final chronodeskAccept = _lib.lookupFunction<
+final chronodeskAccept = _nativeLib.lookupFunction<
     Void Function(),
     void Function()>('chronodesk_accept');
 
-final chronodeskDeny = _lib.lookupFunction<
+final chronodeskDeny = _nativeLib.lookupFunction<
     Void Function(),
     void Function()>('chronodesk_deny');
 
-final chronodeskDisconnect = _lib.lookupFunction<
+final chronodeskDisconnect = _nativeLib.lookupFunction<
     Void Function(),
     void Function()>('chronodesk_disconnect');
 
-final chronodeskGetConfig = _lib.lookupFunction<
+final chronodeskGetConfig = _nativeLib.lookupFunction<
     Pointer<Utf8> Function(Pointer<Utf8>),
     Pointer<Utf8> Function(Pointer<Utf8>)>('chronodesk_get_config');
 
-final chronodeskSetConfig = _lib.lookupFunction<
+final chronodeskSetConfig = _nativeLib.lookupFunction<
     Void Function(Pointer<Utf8>, Pointer<Utf8>),
     void Function(Pointer<Utf8>, Pointer<Utf8>)>('chronodesk_set_config');
 
@@ -78,21 +78,21 @@ typedef GetFrameDart = int Function(
   Pointer<Int32>,
   Pointer<Int32>,
 );
-final chronodeskGetFrame = _lib.lookupFunction<GetFrameNative, GetFrameDart>('chronodesk_get_frame');
+final chronodeskGetFrame = _nativeLib.lookupFunction<GetFrameNative, GetFrameDart>('chronodesk_get_frame');
 
-final chronodeskFreeFrame = _lib.lookupFunction<
+final chronodeskFreeFrame = _nativeLib.lookupFunction<
     Void Function(Pointer<Uint8>),
     void Function(Pointer<Uint8>)>('chronodesk_free_frame');
 
-final chronodeskSendInputMove = _lib.lookupFunction<
+final chronodeskSendInputMove = _nativeLib.lookupFunction<
     Void Function(Int32, Int32),
     void Function(int, int)>('chronodesk_send_input_move');
 
-final chronodeskGetLog = _lib.lookupFunction<
+final chronodeskGetLog = _nativeLib.lookupFunction<
     Pointer<Utf8> Function(),
     Pointer<Utf8> Function()>('chronodesk_get_log');
 
-final chronodeskSendInputClick = _lib.lookupFunction<
+final chronodeskSendInputClick = _nativeLib.lookupFunction<
     Void Function(Uint8, Bool),
     void Function(int, bool)>('chronodesk_send_input_click');
 
