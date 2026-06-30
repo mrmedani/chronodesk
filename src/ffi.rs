@@ -138,8 +138,16 @@ pub extern "C" fn chronodesk_init() {
         id, addr
     ));
     logger::write_log(&format!("init complete — peer_id={id} addr={addr}"));
+    let addr2 = addr.clone();
+    let id2 = id.clone();
     rt().spawn(async move {
-        run_loop(&addr, &id).await;
+        logger::write_log("run_loop starting");
+        if let Err(e) = run_loop(&addr2, &id2).await {
+            logger::write_log(&format!("run_loop exited with error: {e}"));
+            push_event(&format!(r#"{{"type":"error","msg":"Internal error: {e}"}}"#));
+        } else {
+            logger::write_log("run_loop exited cleanly");
+        }
     });
 }
 
@@ -184,7 +192,7 @@ pub extern "C" fn chronodesk_set_config(
     ));
 }
 
-async fn run_loop(signaling_addr: &str, my_id: &str) {
+async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error> {
     logger::write_log("run_loop started");
     let (signaling_client, mut signal_events) = SignalingClient::new(signaling_addr, my_id);
     let signaling_tx = signaling_client.channel();
@@ -203,7 +211,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) {
                     r#"{{"type":"error","msg":"Transport init: {}"}}"#,
                     e
                 ));
-                return;
+                return Ok(());
             }
         };
     let transport_tx = transport.signal_tx();

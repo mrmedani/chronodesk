@@ -78,7 +78,7 @@ jobs:
         with:
           name: chronodesk-bin-${{ matrix.os }}
           path: |
-            target/release/chronodesk${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+            target/release/chronodesk-bin${{ matrix.os == 'windows-latest' && '.exe' || '' }}
             target/release/signaling-server${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           if-no-files-found: warn
 

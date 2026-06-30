@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/chronodesk${{ matrix.ext }} dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/chronodesk-bin${{ matrix.ext }} dist/ 2>/dev/null || true
           cp target/${{ matrix.target }}/release/signaling-server${{ matrix.ext }} dist/ 2>/dev/null || true
           cp target/${{ matrix.target }}/release/chronodesk.dll dist/ 2>/dev/null || true
           cp target/${{ matrix.target }}/release/libchronodesk.so dist/ 2>/dev/null || true
