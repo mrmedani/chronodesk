@@ -2,19 +2,31 @@ import 'dart:ffi';
 import 'dart:io';
 import 'package:ffi/ffi.dart';
 
-final DynamicLibrary _lib = _loadLibrary();
+DynamicLibrary? _lib;
+String? _loadError;
 
-DynamicLibrary _loadLibrary() {
-  if (Platform.isWindows) {
-    return DynamicLibrary.open('chronodesk.dll');
-  } else if (Platform.isMacOS) {
-    return DynamicLibrary.open('libchronodesk.dylib');
-  } else {
-    return DynamicLibrary.open('libchronodesk.so');
+void ensureInitialized() {
+  if (_lib != null) return;
+  try {
+    if (Platform.isWindows) {
+      _lib = DynamicLibrary.open('chronodesk.dll');
+    } else if (Platform.isMacOS) {
+      _lib = DynamicLibrary.open('libchronodesk.dylib');
+    } else {
+      _lib = DynamicLibrary.open('libchronodesk.so');
+    }
+  } catch (e) {
+    _loadError = 'Failed to load native library: $e';
   }
 }
 
-final chronodeskInit = _lib.lookupFunction<
+DynamicLibrary get _nativeLib {
+  ensureInitialized();
+  if (_lib == null) throw StateError(_loadError ?? 'Native library not loaded');
+  return _lib!;
+}
+
+final chronodeskInit = _nativeLib.lookupFunction<
     Void Function(),
     void Function()>('chronodesk_init');
 
@@ -116,7 +128,7 @@ bool getFrame(Pointer<Pointer<Uint8>> data, Pointer<Int32> len,
 String getConfig(String key) {
   final k = key.toNativeUtf8();
   final ptr = chronodeskGetConfig(k);
-  calloc.free(k);
+  malloc.free(k);
   return _readCString(ptr) ?? '';
 }
 
@@ -124,6 +136,6 @@ void setConfig(String key, String value) {
   final k = key.toNativeUtf8();
   final v = value.toNativeUtf8();
   chronodeskSetConfig(k, v);
-  calloc.free(k);
-  calloc.free(v);
+  malloc.free(k);
+  malloc.free(v);
 }

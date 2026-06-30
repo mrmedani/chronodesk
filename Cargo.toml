@@ -1,6 +1,6 @@
 [package]
 name = "chronodesk"
-version = "0.2.9"
+version = "0.3.0"
 edition = "2021"
 description = "Open-source remote desktop software - AnyDesk alternative"
 
@@ -18,7 +18,6 @@ bytes = "1"
 
 webrtc = "0.17"
 ffmpeg-next = { version = "8", optional = true }
-ring = "0.17"
 xcap = "0.9"
 image = "0.25"
 uuid = { version = "1", features = ["v4"] }

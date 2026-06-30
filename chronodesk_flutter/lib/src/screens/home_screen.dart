@@ -112,7 +112,9 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('_handleEvent error: $e');
+    }
   }
 
   void _pollFrame() {
@@ -121,21 +123,23 @@ class _HomeScreenState extends State<HomeScreen> {
     final len = calloc<Int32>();
     final w = calloc<Int32>();
     final h = calloc<Int32>();
+    var frameFreed = false;
     try {
       if (native.getFrame(data, len, w, h)) {
         final length = len.value;
         final width = w.value;
         final height = h.value;
         if (length > 0 && width > 0 && height > 0) {
-          final bytes = Uint8List.fromList(
-            data.value.asTypedList(length),
-          );
+          final bytes = Uint8List.fromList(data.value.asTypedList(length));
           native.chronodeskFreeFrame(data.value);
+          frameFreed = true;
           _decodeFrame(bytes, width, height);
         }
       }
     } catch (_) {
-      native.chronodeskFreeFrame(data.value);
+      if (!frameFreed && data.value != nullptr) {
+        native.chronodeskFreeFrame(data.value);
+      }
     } finally {
       calloc.free(data);
       calloc.free(len);
@@ -202,15 +206,19 @@ class _HomeScreenState extends State<HomeScreen> {
     final log = native.getLog();
     if (log.isEmpty) return;
     try {
-      final dir = Directory(Platform.environment['USERPROFILE'] ?? '${Platform.environment['HOME']}');
-      final file = File('${dir.path}\\Desktop\\chronodesk_crash_${DateTime.now().millisecondsSinceEpoch}.log');
+      final desktop = Platform.environment['USERPROFILE'] != null
+          ? '${Platform.environment['USERPROFILE']}\\Desktop'
+          : (await getApplicationDocumentsDirectory()).path;
+      final file = File('$desktop\\chronodesk_crash_${DateTime.now().millisecondsSinceEpoch}.log');
       await file.writeAsString(log);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Log saved to ${file.path}')),
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('_exportLogs error: $e');
+    }
   }
 
   void _showSettings() {
@@ -549,6 +557,22 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _onPointerMove(PointerMoveEvent e) {
+    if (_frameW <= 0 || _frameH <= 0) return;
+    native.chronodeskSendInputMove(
+      e.localPosition.dx.toInt().clamp(0, _frameW - 1),
+      e.localPosition.dy.toInt().clamp(0, _frameH - 1),
+    );
+  }
+
+  void _onPointerDown(PointerDownEvent e) {
+    native.chronodeskSendInputClick(1, true);
+  }
+
+  void _onPointerUp(PointerUpEvent e) {
+    native.chronodeskSendInputClick(1, false);
+  }
+
   Widget _buildRemoteView() {
     return Column(
       children: [
@@ -575,11 +599,16 @@ class _HomeScreenState extends State<HomeScreen> {
           child: InteractiveViewer(
             child: Center(
               child: _frameImage != null
-                  ? RawImage(
-                      image: _frameImage,
-                      fit: BoxFit.contain,
-                      width: _frameW.toDouble(),
-                      height: _frameH.toDouble(),
+                  ? Listener(
+                      onPointerMove: _onPointerMove,
+                      onPointerDown: _onPointerDown,
+                      onPointerUp: _onPointerUp,
+                      child: RawImage(
+                        image: _frameImage,
+                        fit: BoxFit.contain,
+                        width: _frameW.toDouble(),
+                        height: _frameH.toDouble(),
+                      ),
                     )
                   : const CircularProgressIndicator(),
             ),

@@ -26,15 +26,12 @@ pub enum TransportEvent {
 
 pub struct Transport {
     peer_id: String,
-    #[allow(dead_code)]
-    pc: Arc<RTCPeerConnection>,
-    #[allow(dead_code)]
-    event_tx: mpsc::UnboundedSender<TransportEvent>,
+    _pc: Arc<RTCPeerConnection>,
+    _event_tx: mpsc::UnboundedSender<TransportEvent>,
     signal_tx: mpsc::UnboundedSender<SignalCommand>,
     data_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
 }
 
-#[allow(dead_code)]
 pub(crate) enum SignalCommand {
     CreateOffer(String),
     HandleOffer(String, String),
@@ -78,23 +75,22 @@ impl Transport {
         let dc_store = data_channel.clone();
 
         let current_peer: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let current_peer_for_state = current_peer.clone();
 
         let event_tx_clone = event_tx.clone();
         pc.on_peer_connection_state_change(Box::new(move |state| {
             let tx = event_tx_clone.clone();
+            let cp = current_peer_for_state.clone();
             Box::pin(async move {
+                let peer = cp.lock().await.clone().unwrap_or_default();
                 match state {
                     RTCPeerConnectionState::Connected => {
-                        let _ = tx.send(TransportEvent::Connected {
-                            peer_id: String::new(),
-                        });
+                        let _ = tx.send(TransportEvent::Connected { peer_id: peer });
                     }
                     RTCPeerConnectionState::Disconnected
                     | RTCPeerConnectionState::Failed
                     | RTCPeerConnectionState::Closed => {
-                        let _ = tx.send(TransportEvent::Disconnected {
-                            peer_id: String::new(),
-                        });
+                        let _ = tx.send(TransportEvent::Disconnected { peer_id: peer });
                     }
                     _ => {}
                 }
@@ -127,7 +123,10 @@ impl Transport {
             Box::pin(async move {
                 if let Some(c) = candidate {
                     if let Some(ref tx) = sig_tx {
-                        let target = cp.lock().await.clone().unwrap_or_default();
+                        let target = match cp.lock().await.clone() {
+                            Some(t) => t,
+                            None => return,
+                        };
                         let candidate_str = c.to_string();
                         let _ = tx.send(SignalingCommand::SendIceCandidate {
                             to: target,
@@ -236,8 +235,8 @@ impl Transport {
         let self_signal_tx = signal_tx.clone();
         let transport = Self {
             peer_id: peer_id.to_string(),
-            pc,
-            event_tx,
+            _pc: pc,
+            _event_tx: event_tx,
             signal_tx: self_signal_tx,
             data_channel,
         };
@@ -245,7 +244,6 @@ impl Transport {
         Ok((transport, event_rx))
     }
 
-    #[allow(dead_code)]
     pub(crate) fn signal_tx(&self) -> mpsc::UnboundedSender<SignalCommand> {
         self.signal_tx.clone()
     }
@@ -304,7 +302,7 @@ impl Transport {
 async fn create_and_send_offer(
     pc: &RTCPeerConnection,
     target: &str,
-    _signal_tx: &mpsc::UnboundedSender<SignalCommand>,
+    _: &mpsc::UnboundedSender<SignalCommand>,
     signaling_tx: &Option<mpsc::UnboundedSender<SignalingCommand>>,
     dc_store: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
     event_tx: &mpsc::UnboundedSender<TransportEvent>,

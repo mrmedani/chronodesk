@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod capture;
 mod input;
 mod network;

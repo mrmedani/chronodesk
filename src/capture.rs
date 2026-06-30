@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -24,7 +24,7 @@ pub struct ScreenCapture {
 
 impl ScreenCapture {
     pub fn new() -> Result<Self> {
-        let monitors = xcap::Monitor::all()?;
+        let monitors = xcap::Monitor::all().context("Failed to enumerate monitors")?;
         tracing::info!("Found {} monitor(s)", monitors.len());
         Ok(Self {
             prev_frames: HashMap::new(),
@@ -118,8 +118,18 @@ impl ScreenCapture {
 
                 for y in ty..ty + tile_h {
                     let offset = y * pitch + tx * 4;
-                    let prev_row = &prev[offset..offset + tile_w * 4];
-                    let new_row = &new_data[offset..offset + tile_w * 4];
+                    let end = offset + tile_w * 4;
+                    if end > prev.len() || end > new_data.len() {
+                        rects.push(DirtyRect {
+                            x: tx,
+                            y: ty,
+                            width: tile_w,
+                            height: tile_h,
+                        });
+                        break;
+                    }
+                    let prev_row = &prev[offset..end];
+                    let new_row = &new_data[offset..end];
 
                     if prev_row != new_row {
                         rects.push(DirtyRect {
