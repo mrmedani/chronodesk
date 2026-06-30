@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 mod capture;
-mod crypto;
 mod input;
 mod network;
 mod protocol;

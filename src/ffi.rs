@@ -397,7 +397,12 @@ pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
         if let Some(ref tx) = s.transport_tx {
             logger::write_log(&format!("sending CreateOffer to {target}"));
             push_event(&format!(r#"{{"type":"connecting","to":"{}"}}"#, target));
-            let _ = tx.send(TrCmd::CreateOffer(target));
+            if let Err(e) = tx.send(TrCmd::CreateOffer(target)) {
+                logger::write_log(&format!("CreateOffer send failed: {e}"));
+                push_event(
+                    r#"{"type":"error","msg":"Connection failed — transport channel closed"}"#,
+                );
+            }
         } else {
             logger::write_log("transport_tx is None — not ready yet");
             push_event(r#"{"type":"error","msg":"Transport not ready — still initializing"}"#);
@@ -412,7 +417,9 @@ pub extern "C" fn chronodesk_accept() {
         lock_state().is_host = true;
         let tx = lock_state().transport_tx.clone();
         if let Some(ref tx) = tx {
-            let _ = tx.send(TrCmd::HandleOffer(from, sdp));
+            if let Err(e) = tx.send(TrCmd::HandleOffer(from, sdp)) {
+                logger::write_log(&format!("HandleOffer send failed: {e}"));
+            }
         }
         push_event(r#"{"type":"accepted"}"#);
     }
@@ -429,7 +436,9 @@ pub extern "C" fn chronodesk_disconnect() {
     rt().spawn(async {
         let tx = lock_state().transport_tx.clone();
         if let Some(ref tx) = tx {
-            let _ = tx.send(TrCmd::Disconnect);
+            if let Err(e) = tx.send(TrCmd::Disconnect) {
+                logger::write_log(&format!("Disconnect send failed: {e}"));
+            }
         }
     });
 }
