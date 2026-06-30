@@ -114,6 +114,20 @@ jobs:
           $env:APP_VERSION = "${{ github.ref_name }}" -replace '^v'
           iscc installer.iss
 
+      - name: Sign installer with SignPath (free for OSS)
+        if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
+        continue-on-error: true
+        uses: signpath/signpath-github-action@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          ci-config-id: ${{ secrets.SIGNPATH_CI_CONFIG }}
+          organization-slug: mrmedani
+          project-slug: chronodesk
+          signing-policy-slug: release-signing
+          artifact-path: installer\chronodesk-windows-setup.exe
+          output-artifact-path: installer\chronodesk-windows-setup.exe
+          wait-for-completion: true
+
       - name: Stage installer & zip
         if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
         shell: pwsh
