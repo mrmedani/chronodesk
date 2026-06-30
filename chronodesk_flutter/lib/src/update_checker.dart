@@ -88,18 +88,18 @@ Future<void> downloadAndApplyUpdate(
     }
 
     final total = response.contentLength ?? -1;
-    final sink = installerFile.openWrite();
     int received = 0;
+    final sink = installerFile.openWrite();
 
     try {
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        if (total > 0) {
-          onProgress(received, total);
-        }
-      }
+      await response.stream
+          .transform(_progressTransformer((chunkLen) {
+            received += chunkLen;
+            if (total > 0) onProgress(received, total);
+          }))
+          .pipe(sink);
     } catch (e) {
+      await sink.flush();
       await sink.close();
       if (await installerFile.exists()) {
         await installerFile.delete();
@@ -107,6 +107,7 @@ Future<void> downloadAndApplyUpdate(
       rethrow;
     }
     await sink.close();
+    if (total > 0) onProgress(total, total);
 
     await _runInstaller(installerFile.path);
   } finally {
@@ -136,4 +137,14 @@ del "%~f0"
   await Process.start('powershell', ['-Command', ps],
       runInShell: true, mode: ProcessStartMode.detached);
   exit(0);
+}
+
+StreamTransformer<List<int>, List<int>> _progressTransformer(
+    void Function(int chunkLen) onData) {
+  return StreamTransformer.fromHandlers(
+    handleData: (chunk, sink) {
+      onData(chunk.length);
+      sink.add(chunk);
+    },
+  );
 }
