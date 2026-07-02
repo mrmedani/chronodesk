@@ -1,0 +1,10 @@
+version: "3.8"
+
+services:
+  coturn:
+    image: instrumentisto/coturn:latest
+    container_name: chronodesk-turn
+    restart: always
+    network_mode: host
+    volumes:
+      - ./turn.conf:/etc/coturn/turnserver.conf

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::collections::VecDeque;
 
 pub struct EncodedPacket {
     pub data: Vec<u8>,
@@ -14,6 +15,7 @@ pub enum EncoderType {
     QuickSync,
     Amf,
     Software,
+    Vp8,
 }
 
 impl EncoderType {
@@ -23,7 +25,8 @@ impl EncoderType {
             EncoderType::Nvenc => "h264_nvenc",
             EncoderType::QuickSync => "h264_qsv",
             EncoderType::Amf => "h264_amf",
-            EncoderType::Software => "jpeg",
+            EncoderType::Software => "webp",
+            EncoderType::Vp8 => "webp",
         }
     }
 }
@@ -33,57 +36,63 @@ pub struct VideoEncoder {
     height: u32,
     encoder_type: EncoderType,
     frame_count: i64,
-    quality: u8,
+    quality: f32,
+    target_bitrate: u32,
+    target_fps: u32,
 }
 
 impl VideoEncoder {
     pub fn new(encoder_type: EncoderType, width: u32, height: u32) -> Result<Self> {
         let detected = detect_best_encoder();
-
         let actual = if encoder_type == EncoderType::Auto {
-            if cfg!(feature = "ffmpeg") {
-                detected
-            } else {
-                EncoderType::Software
-            }
+            detected
         } else {
             encoder_type
         };
-
         tracing::info!("Video encoder: {} ({}x{})", actual.name(), width, height);
-
         Ok(Self {
             width,
             height,
             encoder_type: actual,
             frame_count: 0,
-            quality: 85,
+            quality: 85.0,
+            target_bitrate: 5_000_000,
+            target_fps: 30,
         })
     }
 
     pub fn encode(&mut self, bgra_data: &[u8]) -> Result<Vec<EncodedPacket>> {
         self.frame_count += 1;
-
-        #[cfg(feature = "ffmpeg")]
-        {
-            return encode_ffmpeg(
-                bgra_data,
-                self.width,
-                self.height,
-                self.encoder_type,
-                self.frame_count,
-            );
-        }
-
-        #[cfg(not(feature = "ffmpeg"))]
-        {
-            encode_jpeg(
+        match self.encoder_type {
+            EncoderType::Vp8 | EncoderType::Software | EncoderType::Auto => encode_webp(
                 bgra_data,
                 self.width,
                 self.height,
                 self.frame_count,
                 self.quality,
-            )
+            ),
+            EncoderType::Nvenc | EncoderType::QuickSync | EncoderType::Amf => {
+                #[cfg(feature = "ffmpeg")]
+                {
+                    encode_ffmpeg(
+                        bgra_data,
+                        self.width,
+                        self.height,
+                        self.encoder_type,
+                        self.frame_count,
+                    )
+                }
+                #[cfg(not(feature = "ffmpeg"))]
+                {
+                    encode_webp(
+                        bgra_data,
+                        self.width,
+                        self.height,
+                        self.frame_count,
+                        self.quality,
+                    )
+                }
+            }
         }
     }
 
@@ -93,8 +102,21 @@ impl VideoEncoder {
 
     pub fn request_keyframe(&mut self) {}
 
-    pub fn set_quality(&mut self, quality: u8) {
-        self.quality = quality;
+    pub fn set_quality(&mut self, quality: f32) {
+        self.quality = quality.clamp(1.0, 100.0);
+    }
+
+    pub fn set_bitrate(&mut self, bitrate: u32) {
+        self.target_bitrate = bitrate;
+    }
+
+    pub fn set_target_fps(&mut self, fps: u32) {
+        self.target_fps = fps.clamp(1, 60);
+    }
+
+    pub fn set_resolution(&mut self, width: u32, height: u32) {
+        self.width = width;
+        self.height = height;
     }
 
     pub fn width(&self) -> u32 {
@@ -106,35 +128,39 @@ impl VideoEncoder {
     pub fn encoder_type(&self) -> EncoderType {
         self.encoder_type
     }
+    pub fn quality(&self) -> f32 {
+        self.quality
+    }
+    pub fn target_fps(&self) -> u32 {
+        self.target_fps
+    }
 }
 
-#[cfg(not(feature = "ffmpeg"))]
-fn encode_jpeg(
-    bgra_data: &[u8],
-    width: u32,
-    height: u32,
-    pts: i64,
-    quality: u8,
-) -> Result<Vec<EncodedPacket>> {
-    use image::codecs::jpeg::JpegEncoder;
-    use image::ColorType;
-
-    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
-    for pixel in bgra_data.chunks(4) {
+fn rgba_to_rgb(bgra: &[u8]) -> Vec<u8> {
+    let mut rgb = Vec::with_capacity(bgra.len() / 4 * 3);
+    for pixel in bgra.chunks(4) {
         rgb.push(pixel[2]);
         rgb.push(pixel[1]);
         rgb.push(pixel[0]);
     }
+    rgb
+}
 
-    let mut jpeg_data = Vec::new();
-    let mut encoder = JpegEncoder::new_with_quality(&mut jpeg_data, quality);
-    encoder.encode(&rgb, width, height, ColorType::Rgb8.into())?;
-
+fn encode_webp(
+    bgra_data: &[u8],
+    width: u32,
+    height: u32,
+    pts: i64,
+    quality: f32,
+) -> Result<Vec<EncodedPacket>> {
+    let rgb = rgba_to_rgb(bgra_data);
+    let encoder = webp::Encoder::new(&rgb, webp::PixelLayout::Rgb, width, height);
+    let mem = encoder.encode(quality);
     Ok(vec![EncodedPacket {
-        data: jpeg_data,
+        data: mem.to_vec(),
         keyframe: true,
         pts,
-        codec: "jpeg",
+        codec: "webp",
     }])
 }
 
@@ -149,7 +175,6 @@ fn encode_ffmpeg(
     use ffmpeg_next::{codec, encoder, format as ff, frame, Dictionary, Packet};
 
     let encoder_name = encoder_type.name();
-
     let codec = encoder::find_by_name(encoder_name)
         .or_else(|| {
             tracing::warn!("{encoder_name} not available, falling back to libx264");
@@ -167,7 +192,6 @@ fn encode_ffmpeg(
     enc.set_format(ff::Pixel::YUV420P);
 
     let mut opts = Dictionary::new();
-
     match encoder_type {
         EncoderType::Nvenc => {
             opts.set("preset", "p4");
@@ -194,7 +218,6 @@ fn encode_ffmpeg(
     }
 
     let mut encoder = enc.open_with(opts)?;
-
     let mut sws = ffmpeg_next::software::scaling::Context::get(
         ff::Pixel::BGRA,
         width,
@@ -214,7 +237,6 @@ fn encode_ffmpeg(
 
     let mut packets = Vec::new();
     encoder.send_frame(&dst)?;
-
     let mut packet = Packet::empty();
     loop {
         match encoder.receive_packet(&mut packet) {
@@ -232,22 +254,118 @@ fn encode_ffmpeg(
             Err(e) => return Err(e.into()),
         }
     }
-
     Ok(packets)
 }
 
 fn detect_best_encoder() -> EncoderType {
-    #[cfg(feature = "ffmpeg")]
-    {
-        if ffmpeg_next::encoder::find_by_name("h264_nvenc").is_some() {
-            return EncoderType::Nvenc;
-        }
-        if ffmpeg_next::encoder::find_by_name("h264_qsv").is_some() {
-            return EncoderType::QuickSync;
-        }
-        if ffmpeg_next::encoder::find_by_name("h264_amf").is_some() {
-            return EncoderType::Amf;
+    EncoderType::Software
+}
+
+/// Adaptive quality controller — adjusts quality, fps, and resolution based on RTT and frame sizes.
+pub struct QualityController {
+    pub quality: f32,
+    pub target_fps: u32,
+    pub resolution_scale: f32,
+    rtt_estimate: f64,
+    rtt_samples: VecDeque<f64>,
+    frame_size_samples: VecDeque<usize>,
+    adapt_count: u64,
+    last_ping_time: Option<std::time::Instant>,
+    last_adapt_frame: i64,
+}
+
+impl Default for QualityController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl QualityController {
+    pub fn new() -> Self {
+        Self {
+            quality: 85.0,
+            target_fps: 30,
+            resolution_scale: 1.0,
+            rtt_estimate: 10.0,
+            rtt_samples: VecDeque::with_capacity(10),
+            frame_size_samples: VecDeque::new(),
+            adapt_count: 0,
+            last_ping_time: None,
+            last_adapt_frame: 0,
         }
     }
-    EncoderType::Software
+
+    pub fn record_ping_sent(&mut self) {
+        self.last_ping_time = Some(std::time::Instant::now());
+    }
+
+    pub fn record_pong_received(&mut self) {
+        if let Some(t) = self.last_ping_time {
+            let rtt = t.elapsed().as_secs_f64() * 1000.0;
+            self.rtt_samples.push_back(rtt);
+            if self.rtt_samples.len() > 10 {
+                self.rtt_samples.pop_front();
+            }
+            self.rtt_estimate =
+                self.rtt_samples.iter().sum::<f64>() / self.rtt_samples.len() as f64;
+        }
+    }
+
+    pub fn record_frame_size(&mut self, size: usize) {
+        self.frame_size_samples.push_back(size);
+        if self.frame_size_samples.len() > 30 {
+            self.frame_size_samples.pop_front();
+        }
+    }
+
+    pub fn adapt(&mut self, encoder: &mut VideoEncoder, current_frame: i64) {
+        if current_frame - self.last_adapt_frame < 15 {
+            return;
+        }
+        self.last_adapt_frame = current_frame;
+        self.adapt_count += 1;
+
+        let avg_rtt = self.rtt_estimate;
+        let avg_frame_size = self.frame_size_samples.iter().sum::<usize>() as f64
+            / self.frame_size_samples.len().max(1) as f64;
+
+        // Estimate bandwidth in Mbps from average frame size and target FPS
+        let fps_actual = self.target_fps as f64;
+        let bandwidth_mbps = avg_frame_size * fps_actual * 8.0 / 1_000_000.0;
+
+        tracing::debug!(
+            "Quality adapt #{}: rtt={:.0}ms, frame={:.0}B, bw={:.1}Mbps, quality={:.0}, fps={}, scale={:.2}",
+            self.adapt_count, avg_rtt, avg_frame_size, bandwidth_mbps,
+            self.quality, self.target_fps, self.resolution_scale,
+        );
+
+        if avg_rtt > 500.0 {
+            self.quality = 15.0;
+            self.resolution_scale = 0.5;
+            self.target_fps = 10;
+        } else if avg_rtt > 200.0 {
+            self.quality = 30.0;
+            self.resolution_scale = 0.75;
+            self.target_fps = 15;
+        } else if avg_rtt > 100.0 {
+            self.quality = 50.0;
+            self.resolution_scale = 0.85;
+            self.target_fps = 24;
+        } else if avg_rtt > 50.0 {
+            self.quality = 65.0;
+            self.resolution_scale = 1.0;
+            self.target_fps = 30;
+        } else {
+            self.quality = (self.quality * 1.05).min(85.0);
+            self.resolution_scale = 1.0;
+            self.target_fps = 30;
+        }
+
+        encoder.set_quality(self.quality);
+        encoder.set_target_fps(self.target_fps);
+    }
+
+    pub fn rtt_ms(&self) -> f64 {
+        self.rtt_estimate
+    }
 }

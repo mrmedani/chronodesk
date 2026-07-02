@@ -96,6 +96,10 @@ final chronodeskSendInputClick = _nativeLib.lookupFunction<
     Void Function(Uint8, Bool),
     void Function(int, bool)>('chronodesk_send_input_click');
 
+final chronodeskSendInputKey = _nativeLib.lookupFunction<
+    Void Function(Uint64, Bool),
+    void Function(int, bool)>('chronodesk_send_input_key');
+
 String? _readCString(Pointer<Utf8> ptr) {
   if (ptr == nullptr) return null;
   final s = ptr.toDartString();

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:ffi/ffi.dart';
 import 'package:path_provider/path_provider.dart';
 import '../ffi/native.dart' as native;
@@ -25,6 +26,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _connecting = false;
   bool _updateDialogOpen = false;
   bool _isUpdating = false;
+  bool _audioMuted = false;
+  int _rttMs = 0;
+  int _qualityLevel = 85;
+  int _targetFps = 30;
   ui.Image? _frameImage;
   int _frameW = 0;
   int _frameH = 0;
@@ -34,6 +39,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _updateTimer;
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _addrController = TextEditingController();
+  final TextEditingController _turnUrlController = TextEditingController();
+  final TextEditingController _turnUserController = TextEditingController();
+  final TextEditingController _turnPassController = TextEditingController();
 
   @override
   void initState() {
@@ -60,6 +68,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _updateTimer?.cancel();
     _idController.dispose();
     _addrController.dispose();
+    _turnUrlController.dispose();
+    _turnUserController.dispose();
+    _turnPassController.dispose();
     super.dispose();
   }
 
@@ -93,6 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _isHost = false;
             _connecting = false;
             _frameImage = null;
+            _rttMs = 0;
           });
         case 'connecting':
           setState(() => _connecting = true);
@@ -104,6 +116,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Connection timeout: peer unreachable')),
             );
+          });
+        case 'quality':
+          setState(() {
+            _rttMs = map['rtt'] as int? ?? 0;
+            _qualityLevel = map['quality'] as int? ?? 85;
+            _targetFps = map['fps'] as int? ?? 30;
           });
         case 'error':
           _exportLogs();
@@ -225,49 +243,106 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showSettings() {
     _addrController.text = native.getConfig('signaling_addr');
     if (_addrController.text.isEmpty) _addrController.text = '144.24.201.196:21116';
+    _turnUrlController.text = native.getConfig('turn_url');
+    _turnUserController.text = native.getConfig('turn_username');
+    _turnPassController.text = native.getConfig('turn_password');
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Settings'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Signaling Server', style: TextStyle(fontSize: 13, color: Colors.grey)),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _addrController,
-              style: const TextStyle(fontSize: 16),
-              textAlign: TextAlign.center,
-              decoration: InputDecoration(
-                hintText: 'host:port',
-                filled: true,
-                fillColor: Colors.grey.shade900,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Signaling Server', style: TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _addrController,
+                style: const TextStyle(fontSize: 16),
+                textAlign: TextAlign.center,
+                decoration: InputDecoration(
+                  hintText: 'host:port',
+                  filled: true,
+                  fillColor: Colors.grey.shade900,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Restart the app after changing this address.',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-            ),
-            const SizedBox(height: 24),
-            const Divider(color: Colors.grey),
-            const SizedBox(height: 8),
-            TextButton.icon(
-              onPressed: () => _checkUpdate(ctx),
-              icon: const Icon(Icons.system_update, size: 18),
-              label: const Text('Check for Updates'),
-            ),
-            const SizedBox(height: 4),
-            TextButton.icon(
-              onPressed: () {
-                _exportLogs();
-              },
-              icon: const Icon(Icons.bug_report, size: 18),
-              label: const Text('Export Crash Logs'),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                'Restart the app after changing this address.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              ),
+              const SizedBox(height: 24),
+              const Text('TURN Server (optional)', style: TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _turnUrlController,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'turn:host:3478',
+                  filled: true,
+                  fillColor: Colors.grey.shade900,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _turnUserController,
+                      style: const TextStyle(fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'Username',
+                        filled: true,
+                        fillColor: Colors.grey.shade900,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _turnPassController,
+                      style: const TextStyle(fontSize: 14),
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        hintText: 'Password',
+                        filled: true,
+                        fillColor: Colors.grey.shade900,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Restart app after changing TURN settings.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              ),
+              const SizedBox(height: 24),
+              const Divider(color: Colors.grey),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () => _checkUpdate(ctx),
+                icon: const Icon(Icons.system_update, size: 18),
+                label: const Text('Check for Updates'),
+              ),
+              const SizedBox(height: 4),
+              TextButton.icon(
+                onPressed: () {
+                  _exportLogs();
+                },
+                icon: const Icon(Icons.bug_report, size: 18),
+                label: const Text('Export Crash Logs'),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -277,10 +352,13 @@ class _HomeScreenState extends State<HomeScreen> {
           FilledButton(
             onPressed: () {
               native.setConfig('signaling_addr', _addrController.text.trim());
+              native.setConfig('turn_url', _turnUrlController.text.trim());
+              native.setConfig('turn_username', _turnUserController.text.trim());
+              native.setConfig('turn_password', _turnPassController.text.trim());
               setState(() => _signalingAddr = _addrController.text.trim());
               Navigator.of(ctx).pop();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Server address saved. Restart to apply.')),
+                const SnackBar(content: Text('Settings saved. Restart to apply.')),
               );
             },
             child: const Text('Save'),
@@ -584,47 +662,85 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildRemoteView() {
-    return Column(
-      children: [
-        Container(
-          color: const Color(0xFF0F0F1A),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Icon(Icons.monitor, color: Colors.green.shade400, size: 18),
-                const SizedBox(width: 8),
-                Text('Remote Desktop', style: TextStyle(color: Colors.grey.shade300)),
-                const Spacer(),
-                IconButton(
-                  icon: Icon(Icons.close, color: Colors.red.shade300),
-                  onPressed: _disconnect,
-                  tooltip: 'Disconnect',
-                ),
-              ],
-            ),
-          ),
-        ),
-        Expanded(
-          child: InteractiveViewer(
-            child: Center(
-              child: _frameImage != null
-                  ? Listener(
-                      onPointerMove: _onPointerMove,
-                      onPointerDown: _onPointerDown,
-                      onPointerUp: _onPointerUp,
-                      child: RawImage(
-                        image: _frameImage,
-                        fit: BoxFit.contain,
-                        width: _frameW.toDouble(),
-                        height: _frameH.toDouble(),
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (_, event) {
+        if (event is KeyDownEvent || event is KeyRepeatEvent) {
+          native.chronodeskSendInputKey(event.logicalKey.keyId, true);
+          return KeyEventResult.handled;
+        } else if (event is KeyUpEvent) {
+          native.chronodeskSendInputKey(event.logicalKey.keyId, false);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Column(
+        children: [
+          Container(
+            color: const Color(0xFF0F0F1A),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.monitor, color: Colors.green.shade400, size: 18),
+                  const SizedBox(width: 8),
+                  Text('Remote Desktop', style: TextStyle(color: Colors.grey.shade300)),
+                  const Spacer(),
+                  if (_rttMs > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.speed, size: 14, color: _rttMs > 200 ? Colors.red.shade300 : Colors.green.shade400),
+                          const SizedBox(width: 4),
+                          Text('${_rttMs}ms', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+                          const SizedBox(width: 8),
+                          Text('Q$_qualityLevel', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+                          const SizedBox(width: 8),
+                          Text('${_targetFps}fps', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+                        ],
                       ),
-                    )
-                  : const CircularProgressIndicator(),
+                    ),
+                  IconButton(
+                    icon: Icon(
+                      _audioMuted ? Icons.volume_off : Icons.volume_up,
+                      color: _audioMuted ? Colors.red.shade300 : Colors.green.shade400,
+                      size: 20,
+                    ),
+                    onPressed: () => setState(() => _audioMuted = !_audioMuted),
+                    tooltip: _audioMuted ? 'Unmute audio' : 'Mute audio',
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: Colors.red.shade300),
+                    onPressed: _disconnect,
+                    tooltip: 'Disconnect',
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+          Expanded(
+            child: InteractiveViewer(
+              child: Center(
+                child: _frameImage != null
+                    ? Listener(
+                        onPointerMove: _onPointerMove,
+                        onPointerDown: _onPointerDown,
+                        onPointerUp: _onPointerUp,
+                        child: RawImage(
+                          image: _frameImage,
+                          fit: BoxFit.contain,
+                          width: _frameW.toDouble(),
+                          height: _frameH.toDouble(),
+                        ),
+                      )
+                    : const CircularProgressIndicator(),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

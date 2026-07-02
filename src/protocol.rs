@@ -17,11 +17,16 @@ pub enum ChannelMessage {
         pressed: bool,
     },
     InputKey {
-        key: u32,
+        key: u64,
         pressed: bool,
     },
     Clipboard {
         text: String,
+    },
+    AudioData {
+        data: Vec<u8>,
+        sample_rate: u32,
+        channels: u16,
     },
     Ping {
         timestamp: i64,

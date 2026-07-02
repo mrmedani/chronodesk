@@ -3,7 +3,7 @@ use crate::logger;
 use crate::network::signaling::{SignalCommand as SigCmd, SignalEvent, SignalingClient};
 use crate::network::transport::{SignalCommand as TrCmd, Transport, TransportEvent};
 use crate::protocol::ChannelMessage;
-use crate::video::{EncoderType, VideoEncoder};
+use crate::video::{EncoderType, QualityController, VideoEncoder};
 use std::ffi::{CStr, CString};
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -126,6 +126,31 @@ fn get_signaling_addr() -> String {
         .to_string()
 }
 
+fn get_turn_config() -> Option<crate::network::transport::TurnConfig> {
+    let config = load_config();
+    let url = config
+        .get("turn_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return None;
+    }
+    Some(crate::network::transport::TurnConfig {
+        url,
+        username: config
+            .get("turn_username")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        credential: config
+            .get("turn_password")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn chronodesk_init() {
     logger::init();
@@ -204,8 +229,9 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
         signaling_addr.split(':').next().unwrap_or("144.24.201.196")
     );
 
+    let turn_cfg = get_turn_config();
     let (transport, mut transport_events) =
-        match Transport::new(my_id, &stun_addr, Some(signaling_tx.clone())).await {
+        match Transport::new(my_id, &stun_addr, turn_cfg, Some(signaling_tx.clone())).await {
             Ok(t) => t,
             Err(e) => {
                 logger::write_log(&format!("Transport init FAILED: {e}"));
@@ -234,6 +260,15 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
     let mut capture = ScreenCapture::new().ok();
     let mut encoder = VideoEncoder::new(EncoderType::Auto, 1920, 1080).ok();
     let mut capture_active = false;
+    let mut audio_capture: Option<(crate::audio::AudioCapture, crate::audio::AudioCodec)> = None;
+    let mut audio_player: Option<(crate::audio::AudioPlayer, crate::audio::AudioCodec)> = None;
+
+    let mut audio_rx: Option<mpsc::UnboundedReceiver<Vec<f32>>> = None;
+    let mut clipboard_rx: Option<mpsc::UnboundedReceiver<String>> = None;
+
+    let mut quality_ctrl = QualityController::new();
+    let mut frame_count: i64 = 0;
+    let mut ping_interval: i32 = 0;
 
     loop {
         tokio::select! {
@@ -266,11 +301,40 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                         let was_host = lock_state().is_host;
                         lock_state().connected = true;
                         capture_active = was_host;
+
+                        if was_host {
+                            match crate::audio::AudioCapture::new() {
+                                Ok((cap, rx)) => {
+                                    audio_rx = Some(rx);
+                                    audio_capture = Some((cap, crate::audio::AudioCodec::new().unwrap()));
+                                    logger::write_log("audio capture started (host)");
+                                }
+                                Err(e) => logger::write_log(&format!("audio capture failed: {e}")),
+                            }
+                        } else {
+                            match crate::audio::AudioPlayer::new() {
+                                Ok(player) => {
+                                    let codec = crate::audio::AudioCodec::new().unwrap();
+                                    audio_player = Some((player, codec));
+                                    logger::write_log("audio player started (viewer)");
+                                }
+                                Err(e) => logger::write_log(&format!("audio player failed: {e}")),
+                            }
+                        }
+
+                        let (_clip, clip_rx) = crate::clipboard::ClipboardSync::start();
+                        clipboard_rx = Some(clip_rx);
+                        logger::write_log("clipboard sync started");
+
                         logger::write_log(&format!("transport connected — is_host={was_host}"));
                         push_event(r#"{"type":"connected"}"#);
                     }
                     TransportEvent::Disconnected { .. } => {
                         capture_active = false;
+                        audio_capture = None;
+                        audio_player = None;
+                        audio_rx = None;
+                        clipboard_rx = None;
                         lock_state().connected = false;
                         lock_state().is_host = false;
                         logger::write_log("transport disconnected");
@@ -279,10 +343,9 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                     TransportEvent::MessageReceived { msg } => {
                         match msg {
                             ChannelMessage::VideoFrame { width, height, codec, data } => {
-                                let rgba = if codec == 0 {
-                                    jpeg_to_rgba(&data, width as usize, height as usize)
-                                } else {
-                                    Vec::new()
+                                let rgba = match codec {
+                                    0 | 2 => jpeg_to_rgba(&data, width as usize, height as usize),
+                                    _ => Vec::new(),
                                 };
                                 if !rgba.is_empty() {
                                     let mut s = lock_state();
@@ -292,6 +355,15 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                                     s.frame_ready = true;
                                 }
                                 push_event(&format!(r#"{{"type":"frame","w":{},"h":{},"codec":{},"size":{}}}"#, width, height, codec, data.len()));
+                            }
+                            ChannelMessage::AudioData { data, sample_rate, channels } => {
+                                if let Some((ref player, ref mut codec)) = audio_player {
+                                    let mut pcm = vec![0.0f32; crate::audio::FRAME_SIZE * crate::audio::CHANNELS];
+                                    if let Ok(len) = codec.decode(&data, &mut pcm) {
+                                        let resampled = crate::audio::resample_to_48k_stereo(&pcm[..len], sample_rate, channels);
+                                        player.feed(&resampled);
+                                    }
+                                }
                             }
                             ChannelMessage::InputMove { x, y } => {
                                 if let Ok(mut inp) = crate::input::InputController::new() {
@@ -307,12 +379,25 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                                     }
                                 }
                             }
-                            ChannelMessage::InputKey { .. } => {}
+                            ChannelMessage::InputKey { key, pressed } => {
+                                if let Some(enigo_key) = crate::input::logical_key_to_enigo(key) {
+                                    if let Ok(mut inp) = crate::input::InputController::new() {
+                                        let dir = if pressed { enigo::Direction::Press } else { enigo::Direction::Release };
+                                        let _ = inp.key_press(enigo_key, dir);
+                                    }
+                                }
+                            }
                             ChannelMessage::Clipboard { text } => {
+                                crate::clipboard::ClipboardSync::write(&text);
                                 push_event(&format!(r#"{{"type":"clipboard","text":"{}"}}"#, text));
                             }
-                            ChannelMessage::Ping { .. } => {}
-                            ChannelMessage::Pong { .. } => {}
+                            ChannelMessage::Ping { .. } => {
+                                let pong = ChannelMessage::Pong { timestamp: 0 };
+                                let _ = transport.send_message(&pong).await;
+                            }
+                            ChannelMessage::Pong { .. } => {
+                                quality_ctrl.record_pong_received();
+                            }
                         }
                     }
                     TransportEvent::Error { msg } => {
@@ -321,18 +406,82 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                     }
                 }
             }
+            Some(audio_samples) = async {
+                if let Some(ref mut rx) = audio_rx.as_mut() {
+                    rx.recv().await
+                } else {
+                    std::future::pending::<Option<Vec<f32>>>().await
+                }
+            } => {
+                if let Some((ref _cap, ref mut codec)) = audio_capture {
+                    let resampled = crate::audio::resample_to_48k_stereo(&audio_samples, 48000, 2);
+                    if let Ok(encoded) = codec.encode(&resampled) {
+                        let msg = ChannelMessage::AudioData {
+                            data: encoded,
+                            sample_rate: crate::audio::SAMPLE_RATE,
+                            channels: 2,
+                        };
+                        let _ = transport.send_message(&msg).await;
+                    }
+                }
+            }
+            Some(clip_text) = async {
+                if let Some(ref mut rx) = clipboard_rx.as_mut() {
+                    rx.recv().await
+                } else {
+                    std::future::pending::<Option<String>>().await
+                }
+            } => {
+                if capture_active {
+                    let msg = ChannelMessage::Clipboard { text: clip_text };
+                    let _ = transport.send_message(&msg).await;
+                }
+            }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(16)) => {
+                ping_interval += 1;
+                if ping_interval >= 125 {
+                    ping_interval = 0;
+                    quality_ctrl.record_ping_sent();
+                    let ping = ChannelMessage::Ping { timestamp: 0 };
+                    let _ = transport.send_message(&ping).await;
+                }
+
                 if capture_active {
                     if let (Some(ref mut cap), Some(ref mut enc)) = (&mut capture, &mut encoder) {
+                        frame_count += 1;
+                        let fps = enc.target_fps();
+                        let skip = (60 / fps.max(1)) as i64;
+                        if skip > 1 && frame_count % skip != 0 {
+                            continue;
+                        }
+                        quality_ctrl.adapt(enc, frame_count);
+                        if quality_ctrl.rtt_ms() > 0.0 {
+                            let ev = format!(
+                                r#"{{"type":"quality","rtt":{},"quality":{},"fps":{},"scale":{}}}"#,
+                                quality_ctrl.rtt_ms() as i64,
+                                enc.quality() as u8,
+                                enc.target_fps(),
+                                1.0,
+                            );
+                            push_event(&ev);
+                        }
+
                         if let Ok(frames) = cap.capture_all() {
                             for frame in &frames {
                                 if frame.dirty_rects.is_empty() { continue; }
                                 if let Ok(packets) = enc.encode(&frame.data) {
                                     for pkt in &packets {
+                                        quality_ctrl.record_frame_size(pkt.data.len());
+                                        let codec_id = match pkt.codec {
+                                            "jpeg" => 0,
+                                            "h264" => 1,
+                                            "webp" => 2,
+                                            _ => 0,
+                                        };
                                         let msg = ChannelMessage::VideoFrame {
                                             width: frame.width as u32,
                                             height: frame.height as u32,
-                                            codec: if pkt.codec == "jpeg" { 0 } else { 1 },
+                                            codec: codec_id,
                                             data: pkt.data.clone(),
                                         };
                                         let _ = transport.send_message(&msg).await;
@@ -500,6 +649,17 @@ pub extern "C" fn chronodesk_send_input_click(button: u8, pressed: bool) {
     if let Some(ref tx) = tx {
         let _ = tx.send(TrCmd::SendMessage(ChannelMessage::InputClick {
             button,
+            pressed,
+        }));
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn chronodesk_send_input_key(key: u64, pressed: bool) {
+    let tx = lock_state().transport_tx.clone();
+    if let Some(ref tx) = tx {
+        let _ = tx.send(TrCmd::SendMessage(ChannelMessage::InputKey {
+            key,
             pressed,
         }));
     }

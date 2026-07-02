@@ -32,6 +32,12 @@ pub struct Transport {
     data_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
 }
 
+pub struct TurnConfig {
+    pub url: String,
+    pub username: String,
+    pub credential: String,
+}
+
 pub(crate) enum SignalCommand {
     CreateOffer(String),
     HandleOffer(String, String),
@@ -45,6 +51,7 @@ impl Transport {
     pub async fn new(
         peer_id: &str,
         stun_addr: &str,
+        turn: Option<TurnConfig>,
         signaling_tx: Option<mpsc::UnboundedSender<SignalingCommand>>,
     ) -> Result<(Self, mpsc::UnboundedReceiver<TransportEvent>)> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
@@ -61,11 +68,20 @@ impl Transport {
             .with_interceptor_registry(registry)
             .build();
 
+        let mut ice_servers = vec![RTCIceServer {
+            urls: vec![stun_addr.to_string()],
+            ..Default::default()
+        }];
+        if let Some(turn_cfg) = turn {
+            ice_servers.push(RTCIceServer {
+                urls: vec![turn_cfg.url],
+                username: turn_cfg.username,
+                credential: turn_cfg.credential,
+            });
+        }
+
         let config = RTCConfiguration {
-            ice_servers: vec![RTCIceServer {
-                urls: vec![stun_addr.to_string()],
-                ..Default::default()
-            }],
+            ice_servers,
             ..Default::default()
         };
 

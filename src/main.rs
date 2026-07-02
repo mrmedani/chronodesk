@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chronodesk::capture::ScreenCapture;
-use chronodesk::input::InputController;
+use chronodesk::input::{logical_key_to_enigo, InputController};
 use chronodesk::network::signaling::SignalEvent;
 use chronodesk::network::signaling::SignalingClient;
 use chronodesk::network::transport::{Transport, TransportEvent};
@@ -65,6 +65,7 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
     let (transport, mut transport_events) = Transport::new(
         &my_id,
         "stun:stun.l.google.com:19302",
+        None,
         Some(signaling.channel()),
     )
     .await?;
@@ -151,6 +152,7 @@ async fn run_client(
     let (mut transport, mut transport_events) = Transport::new(
         &my_id,
         "stun:stun.l.google.com:19302",
+        None,
         Some(signaling.channel()),
     )
     .await?;
@@ -227,10 +229,20 @@ async fn handle_host_message(msg: ChannelMessage) -> Result<()> {
                 inp.mouse_up(button)?;
             }
         }
-        ChannelMessage::InputKey { key: _, pressed: _ } => {
-            tracing::debug!("Key event ignored (stub)");
+        ChannelMessage::InputKey { key, pressed } => {
+            if let Some(enigo_key) = logical_key_to_enigo(key) {
+                let dir = if pressed {
+                    enigo::Direction::Press
+                } else {
+                    enigo::Direction::Release
+                };
+                if let Ok(mut inp) = InputController::new() {
+                    let _ = inp.key_press(enigo_key, dir);
+                }
+            }
         }
         ChannelMessage::Clipboard { text } => {
+            chronodesk::clipboard::ClipboardSync::write(&text);
             tracing::info!("Clipboard received: {} chars", text.len());
         }
         ChannelMessage::Ping { timestamp } => {
