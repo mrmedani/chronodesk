@@ -25,14 +25,16 @@
 | :computer: Screen capture | Done | DXGI (Windows), multi-monitor, dirty rectangle detection (64x64 tiles) |
 | :satellite: P2P transport | Done | WebRTC with ICE/STUN, NAT traversal, data channel |
 | :signal_strength: Signaling server | Done | Self-hosted WebSocket broker for peer discovery & SDP relay |
-| :video_camera: Video encoding | Done | H.264 (NVENC/QSV/AMF) with FFmpeg or fallback JPEG |
+| :video_camera: Video encoding | Done | H.264 (NVENC/QSV/AMF) with FFmpeg, WebP, or fallback JPEG |
 | :mouse: Input injection | Done | Mouse move/click, keyboard via `enigo` (Windows/macOS/Linux) |
 | :art: Flutter UI | Done | Single-screen AnyDesk-like UX — peer ID, connect field, remote view, accept/deny dialog |
 | :link: Rust ↔ Flutter bridge | Done | Raw C FFI with event polling, frame buffer, accept/deny flow |
 | :id: ID system | Done | Persistent 9-digit peer ID stored in `%APPDATA%/chronodesk` |
-| :locked: Encryption | Ready | AEAD via `ring` (chacha20-poly1305) — wired, key exchange pending |
-| :clipboard: File transfer | Planning | Planned over WebRTC data channel |
-| :globe_with_meridians: Remote audio | Planning | Planned via WebRTC audio tracks |
+| :locked: Encryption | Done | ECDH (X25519) key exchange + AES-256-GCM session encryption |
+| :clipboard: Clipboard sync | Done | Bidirectional clipboard text sync over data channel |
+| :memo: File transfer | Done | Chunked streaming with progress, accept/reject/cancel, download directory |
+| :headphone: Remote audio | Done | Cross-platform audio capture (CPAL) + Opus/raw PCM streaming |
+| :bar_chart: Adaptive quality | Done | Dynamic FPS/resolution based on RTT and packet loss |
 
 ---
 
@@ -170,12 +172,16 @@ chronodesk/
 │   ├── lib.rs                    # Library exports
 │   ├── ffi.rs                    # C FFI exports (ID system, event queue, frame buffer)
 │   ├── bin/signaling.rs          # WebSocket signaling server
+│   ├── audio.rs                  # Audio capture (CPAL) + Opus/raw PCM
 │   ├── capture.rs                # Screen capture (xcap DXGI)
-│   ├── crypto.rs                 # AEAD encryption (ring)
+│   ├── clipboard.rs              # Clipboard sync
+│   ├── crypto.rs                 # ECDH key exchange + AES-256-GCM
+│   ├── file_transfer.rs          # Chunked file transfer streaming
 │   ├── input.rs                  # Input injection (enigo)
-│   ├── video.rs                  # Video encoding (ffmpeg/JPEG)
+│   ├── logger.rs                 # Logging + panic hook
+│   ├── video.rs                  # Video encoding (ffmpeg/WebP/JPEG)
 │   ├── protocol.rs               # Data channel message protocol
-│   ├── main.rs                   # CLI entrypoint (legacy)
+│   ├── main.rs                   # CLI entrypoint (host/client + crypto)
 │   └── network/
 │       ├── transport.rs          # WebRTC PeerConnection
 │       └── signaling.rs          # Signaling client (WebSocket)
@@ -205,9 +211,10 @@ chronodesk/
 | Core engine | **Rust** — performance, safety, memory efficiency |
 | P2P transport | **WebRTC** via `webrtc` crate — ICE, STUN, DTLS, SCTP |
 | Screen capture | **xcap** — DXGI (Windows), CoreGraphics (macOS), X11/PipeWire (Linux) |
-| Video encoding | **FFmpeg** (NVENC/QSV/AMF) or **libjpeg** fallback |
+| Video encoding | **FFmpeg** (NVENC/QSV/AMF), **libwebp**, or **libjpeg** fallback |
 | Input injection | **enigo** — cross-platform input simulation |
-| Encryption | **ring** — AEAD (ChaCha20-Poly1305) |
+| Encryption | **ring** + **aes-gcm** — ECDH (X25519) key exchange + AES-256-GCM session |
+| Audio | **CPAL** — cross-platform audio capture & playback |
 | UI | **Flutter** — Material Design 3, native performance |
 | Bridge | **Raw C FFI** — event polling, RGBA frame buffer, JSON event queue |
 
@@ -220,13 +227,16 @@ chronodesk/
 - [x] Input injection
 - [x] Flutter UI with remote screen viewer
 - [x] Rust ↔ Flutter FFI bridge with event system
-- [ ] End-to-end encryption (key exchange)
-- [ ] File transfer over data channel
-- [ ] Audio streaming
-- [ ] Clipboard sync
-- [ ] TURN server for restrictive NATs
+- [x] End-to-end encryption (ECDH + AES-256-GCM)
+- [x] File transfer over data channel
+- [x] Audio streaming (capture + playback)
+- [x] Clipboard sync
+- [x] TURN server for restrictive NATs
+- [ ] Adaptive quality (RTT-based)
 - [ ] Headless mode for servers
 - [ ] Mobile clients (iOS/Android)
+- [ ] Wake-on-LAN
+- [ ] Multi-monitor selection
 
 ---
 

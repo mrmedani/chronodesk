@@ -5,6 +5,37 @@ All notable changes to CHRONODESK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-02
+
+### Added
+
+- :locked: **End-to-end encryption** — ECDH (X25519) key exchange at connection start, AES-256-GCM session encryption for all subsequent messages
+- :memo: **File transfer** — Chunked streaming over data channel with progress tracking, accept/reject/cancel, and download directory management
+- :headphone: **Audio streaming** — Cross-platform audio capture (CPAL) with Opus/raw PCM encoding, real-time playback on viewer side
+- :clipboard: **Clipboard sync** — Bidirectional clipboard text synchronization between host and viewer
+- :bar_chart: **Adaptive quality** — Dynamic FPS and resolution based on round-trip time and packet loss metrics
+
+### Changed
+
+- :recycle: **Crypto** — New `src/crypto.rs` module: key generation, shared secret computation, AES-GCM session encrypt/decrypt
+- :recycle: **File transfer** — New `src/file_transfer.rs` module with `sanitize_filename()` for path traversal protection
+- :recycle: **Audio** — New `src/audio.rs` module with `AudioCapture` (CPAL) + `AudioPlayer` + resampling
+- :recycle: **Protocol** — `ChannelMessage` enum extended with `Handshake`, `Encrypted`, `FileTransfer*`, `AudioData`, `Clipboard` variants
+- :recycle: **FFI** — `chronodesk_send_file`, `chronodesk_accept_file_transfer`, `chronodesk_reject_file_transfer`, `chronodesk_cancel_file_transfer` exported
+
+### Fixed
+
+- :shield: **No more `.unwrap()` panics** — all error paths now logged instead of panicking (AudioCodec, video codec, mutex poison)
+- :shield: **Poison resilience** — `lock_state()` uses `unwrap_or_else(|e| e.into_inner())` throughout
+- :shield: **Deadlock fix** — `chronodesk_accept()` holds mutex lock briefly, preventing deadlock with event loop
+- :shield: **Path traversal** — Incoming file names sanitized via `sanitize_filename()` before creating files
+- :shield: **Pixel buffer** — `chunks_exact(4)` prevents panic on non-aligned BGRA data
+- :shield: **Division by zero** — Guard for `input_channels == 0` in audio resampling
+- :bug: **Frame leak** — `_frameImage.dispose()` called before replacement and on disconnect
+- :bug: **setState after dispose** — `Future.delayed` in `initState` now checks `mounted`
+- :bug: **Keyboard capture** — Escape toggles capture mode; Tab/Alt/Meta/Windows keys pass through
+- :bug: **Log truncation** — Log file no longer truncated on init, preserving pre-crash diagnostics
+
 ## [0.2.2] - 2026-06-28
 
 ### Fixed

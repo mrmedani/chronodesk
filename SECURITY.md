@@ -4,8 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
+| 0.4.x   | :white_check_mark: |
+| 0.3.x   | :white_check_mark: |
 | 0.2.x   | :white_check_mark: |
-| 0.1.x   | :white_check_mark: |
 | < 0.1   | :x: |
 
 ## Reporting a Vulnerability
@@ -43,4 +44,4 @@ At this time we do not offer a paid bug bounty program. We will publicly acknowl
 
 ## Encryption
 
-CHRONODESK uses **AEAD (ChaCha20-Poly1305)** via the `ring` crate for encrypting data channel messages. Key exchange implementation is in progress.
+CHRONODESK uses **AES-256-GCM** via the `ring` + `aes-gcm` crates for encrypting data channel messages. Key exchange uses **ECDH (X25519)** with ephemeral keys per session, negotiated at connection start via a handshake message. All subsequent messages are encrypted transparently. Legacy unencrypted messages are also accepted for backward compatibility.
