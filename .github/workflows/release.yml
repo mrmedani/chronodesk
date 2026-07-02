@@ -8,6 +8,8 @@ jobs:
   release:
     name: Build & Release
     runs-on: ${{ matrix.os }}
+    env:
+      CMAKE_POLICY_VERSION_MINIMUM: 3.5
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -60,6 +62,8 @@ jobs:
     name: Flutter Build (Windows)
     runs-on: windows-latest
     needs: release
+    env:
+      CMAKE_POLICY_VERSION_MINIMUM: 3.5
     steps:
       - uses: actions/checkout@v4
 
@@ -148,6 +152,8 @@ jobs:
     name: Create Release
     needs: [release, flutter-build]
     runs-on: ubuntu-latest
+    env:
+      CMAKE_POLICY_VERSION_MINIMUM: 3.5
     permissions:
       contents: write
     steps:
