@@ -62,8 +62,8 @@ impl CryptoSession {
 
 pub fn generate_keypair() -> Result<(EphemeralPrivateKey, Vec<u8>)> {
     let rng = SystemRandom::new();
-    let private_key =
-        EphemeralPrivateKey::generate(&X25519, &rng).map_err(|e| anyhow!("key generation failed: {e:?}"))?;
+    let private_key = EphemeralPrivateKey::generate(&X25519, &rng)
+        .map_err(|e| anyhow!("key generation failed: {e:?}"))?;
     let public_key = private_key
         .compute_public_key()
         .map_err(|e| anyhow!("failed to compute public key: {e:?}"))?;
@@ -76,9 +76,10 @@ pub fn compute_shared_secret(
     peer_public_key_bytes: &[u8],
 ) -> Result<Vec<u8>> {
     let peer_public = UnparsedPublicKey::new(&X25519, peer_public_key_bytes);
-    let shared_secret =
-        agree_ephemeral(private_key, &peer_public, |key_material| key_material.to_vec())
-            .map_err(|e| anyhow!("key agreement failed: {e:?}"))?;
+    let shared_secret = agree_ephemeral(private_key, &peer_public, |key_material| {
+        key_material.to_vec()
+    })
+    .map_err(|e| anyhow!("key agreement failed: {e:?}"))?;
     Ok(shared_secret)
 }
 
@@ -103,15 +104,23 @@ mod tests {
         let (host_priv, host_pub) = generate_keypair().expect("host keypair");
         let (viewer_priv, viewer_pub) = generate_keypair().expect("viewer keypair");
 
-        let host_shared = compute_shared_secret(host_priv, &viewer_pub).expect("host shared secret");
-        let viewer_shared = compute_shared_secret(viewer_priv, &host_pub).expect("viewer shared secret");
+        let host_shared =
+            compute_shared_secret(host_priv, &viewer_pub).expect("host shared secret");
+        let viewer_shared =
+            compute_shared_secret(viewer_priv, &host_pub).expect("viewer shared secret");
 
-        assert_eq!(host_shared, viewer_shared, "both sides must compute the same shared secret");
+        assert_eq!(
+            host_shared, viewer_shared,
+            "both sides must compute the same shared secret"
+        );
 
         let host_key = derive_session_key(&host_shared).expect("host session key");
         let viewer_key = derive_session_key(&viewer_shared).expect("viewer session key");
 
-        assert_eq!(host_key, viewer_key, "both sides must derive the same session key");
+        assert_eq!(
+            host_key, viewer_key,
+            "both sides must derive the same session key"
+        );
     }
 
     #[test]
@@ -123,8 +132,14 @@ mod tests {
         let ciphertext = session.encrypt(plaintext).expect("encrypt");
         let decrypted = session.decrypt(&ciphertext).expect("decrypt");
 
-        assert_eq!(&decrypted, plaintext, "decrypted must match original plaintext");
-        assert_ne!(ciphertext, plaintext, "ciphertext must differ from plaintext");
+        assert_eq!(
+            &decrypted, plaintext,
+            "decrypted must match original plaintext"
+        );
+        assert_ne!(
+            ciphertext, plaintext,
+            "ciphertext must differ from plaintext"
+        );
     }
 
     #[test]
@@ -254,11 +269,28 @@ mod tests {
 
         let msgs = vec![
             ChannelMessage::InputMove { x: 100, y: 200 },
-            ChannelMessage::InputClick { button: 1, pressed: true },
-            ChannelMessage::InputKey { key: 42, pressed: false },
-            ChannelMessage::VideoFrame { width: 1920, height: 1080, codec: 2, data: vec![0; 1024] },
-            ChannelMessage::AudioData { data: vec![1, 2, 3], sample_rate: 48000, channels: 2 },
-            ChannelMessage::Clipboard { text: "hello".to_string() },
+            ChannelMessage::InputClick {
+                button: 1,
+                pressed: true,
+            },
+            ChannelMessage::InputKey {
+                key: 42,
+                pressed: false,
+            },
+            ChannelMessage::VideoFrame {
+                width: 1920,
+                height: 1080,
+                codec: 2,
+                data: vec![0; 1024],
+            },
+            ChannelMessage::AudioData {
+                data: vec![1, 2, 3],
+                sample_rate: 48000,
+                channels: 2,
+            },
+            ChannelMessage::Clipboard {
+                text: "hello".to_string(),
+            },
             ChannelMessage::Ping { timestamp: 12345 },
         ];
 

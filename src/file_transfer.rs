@@ -59,16 +59,21 @@ impl FileTransferManager {
 
     pub fn prepare_outgoing(path: &str) -> Result<(String, OutgoingTransfer)> {
         let file = std::fs::File::open(path).context("opening file for transfer")?;
-        let total_size = file
-            .metadata()
-            .context("getting file metadata")?
-            .len();
+        let total_size = file.metadata().context("getting file metadata")?.len();
         let name = Path::new(path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string());
         let id = generate_transfer_id();
-        Ok((id, OutgoingTransfer { file, name, total_size, offset: 0 }))
+        Ok((
+            id,
+            OutgoingTransfer {
+                file,
+                name,
+                total_size,
+                offset: 0,
+            },
+        ))
     }
 
     pub fn incoming_progress(&self, id: &str) -> Option<(u64, u64)> {
@@ -87,7 +92,9 @@ impl FileTransferManager {
                     logger::write_log(&format!("failed to remove .part file: {e}"));
                 }
             } else {
-                logger::write_log(&format!("blocked path traversal: {path:?} not under {download_dir:?}"));
+                logger::write_log(&format!(
+                    "blocked path traversal: {path:?} not under {download_dir:?}"
+                ));
             }
             Some((name, true))
         } else {

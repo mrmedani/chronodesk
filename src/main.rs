@@ -136,7 +136,11 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
                                 if let Some(ref session) = crypto_session {
                                     if let Ok(data) = bincode::serialize(&msg) {
                                         if let Ok(encrypted) = session.encrypt(&data) {
-                                            let _ = transport.send_message(&ChannelMessage::Encrypted { data: encrypted }).await;
+                                            let _ = transport
+                                                .send_message(&ChannelMessage::Encrypted {
+                                                    data: encrypted,
+                                                })
+                                                .await;
                                         }
                                     }
                                 } else {
@@ -228,22 +232,20 @@ async fn handle_client_message_crypto(
         match crypto::generate_keypair() {
             Ok((priv_key, my_pub_key)) => {
                 match crypto::compute_shared_secret(priv_key, public_key) {
-                    Ok(shared) => {
-                        match crypto::derive_session_key(&shared) {
-                            Ok(key) => {
-                                match crypto::CryptoSession::new(&key) {
-                                    Ok(session) => {
-                                        tracing::info!("crypto handshake complete (client)");
-                                        *crypto_session = Some(session);
-                                        let resp = ChannelMessage::Handshake { public_key: my_pub_key };
-                                        let _ = transport.send_message(&resp).await;
-                                    }
-                                    Err(e) => tracing::error!("crypto session init failed: {e}"),
-                                }
+                    Ok(shared) => match crypto::derive_session_key(&shared) {
+                        Ok(key) => match crypto::CryptoSession::new(&key) {
+                            Ok(session) => {
+                                tracing::info!("crypto handshake complete (client)");
+                                *crypto_session = Some(session);
+                                let resp = ChannelMessage::Handshake {
+                                    public_key: my_pub_key,
+                                };
+                                let _ = transport.send_message(&resp).await;
                             }
-                            Err(e) => tracing::error!("crypto key derivation failed: {e}"),
-                        }
-                    }
+                            Err(e) => tracing::error!("crypto session init failed: {e}"),
+                        },
+                        Err(e) => tracing::error!("crypto key derivation failed: {e}"),
+                    },
                     Err(e) => tracing::error!("crypto shared secret failed: {e}"),
                 }
             }
