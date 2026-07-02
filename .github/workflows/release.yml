@@ -126,6 +126,14 @@ jobs:
           copy "chronodesk_flutter\build\windows\x64\runner\Release\chronodesk_flutter_windows.zip" upload\
           copy "installer\chronodesk-windows-setup.exe" upload\
 
+      - name: Generate installer checksum
+        if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "installer\chronodesk-windows-setup.exe" -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path "installer\chronodesk-windows-setup.exe.sha256" -Value "$hash  chronodesk-windows-setup.exe"
+          copy "installer\chronodesk-windows-setup.exe.sha256" upload\
+
       - name: Upload Flutter artifact
         if: steps.flutter_pub_get.conclusion == 'success' && steps.flutter_build.conclusion == 'success'
         uses: actions/upload-artifact@v4
@@ -181,6 +189,8 @@ jobs:
           body_path: CHANGELOG.md
           files: |
             chronodesk-*/**/*
+            chronodesk-flutter-windows/chronodesk-windows-setup.exe
+            chronodesk-flutter-windows/chronodesk-windows-setup.exe.sha256
             *.sha256
           draft: false
           prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}

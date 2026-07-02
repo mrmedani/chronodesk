@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 
 const _repo = 'mrmedani/chronodesk';
@@ -47,9 +48,24 @@ String _asString(dynamic v) {
 }
 
 int _compareVersions(String a, String b) {
+  final aParts = a.split('-');
+  final bParts = b.split('-');
+
+  final cmp = _compareSemver(aParts[0], bParts[0]);
+  if (cmp != 0) return cmp;
+
+  if (aParts.length == 1 && bParts.length == 1) return 0;
+  if (aParts.length > 1 && bParts.length == 1) return -1;
+  if (aParts.length == 1 && bParts.length > 1) return 1;
+
+  return aParts[1].compareTo(bParts[1]);
+}
+
+int _compareSemver(String a, String b) {
   final pa = _parseSegments(a);
   final pb = _parseSegments(b);
-  for (int i = 0; i < 3; i++) {
+  final maxLen = pa.length > pb.length ? pa.length : pb.length;
+  for (int i = 0; i < maxLen; i++) {
     final va = i < pa.length ? pa[i] : 0;
     final vb = i < pb.length ? pb[i] : 0;
     if (va != vb) return va.compareTo(vb);
@@ -75,7 +91,8 @@ Future<void> downloadAndApplyUpdate(
   }
 
   final tmpDir = Directory.systemTemp.path;
-  final installerFile = File('$tmpDir\\chronodesk_setup.exe');
+  final rnd = Random().nextInt(0x7FFFFFFF);
+  final installerFile = File('$tmpDir\\chronodesk_setup_$rnd.exe');
 
   final uri = Uri.parse(
       'https://github.com/$_repo/releases/latest/download/chronodesk-windows-setup.exe');
@@ -88,7 +105,7 @@ Future<void> downloadAndApplyUpdate(
       throw Exception('Download failed: ${response.statusCode}');
     }
 
-    final total = response.contentLength ?? -1;
+    final total = response.contentLength;
     int received = 0;
     final sink = installerFile.openWrite();
 
@@ -96,7 +113,11 @@ Future<void> downloadAndApplyUpdate(
       await response.stream
           .transform(_progressTransformer((chunkLen) {
             received += chunkLen;
-            if (total > 0) onProgress(received, total);
+            if (total != null && total > 0) {
+              onProgress(received, total);
+            } else {
+              onProgress(received, 0);
+            }
           }))
           .pipe(sink);
     } catch (e) {
@@ -108,7 +129,11 @@ Future<void> downloadAndApplyUpdate(
       rethrow;
     }
     await sink.close();
-    if (total > 0) onProgress(total, total);
+    if (total != null && total > 0) {
+      onProgress(total, total);
+    }
+
+    await _verifyChecksum(installerFile.path);
 
     await _runInstaller(installerFile.path);
   } finally {
@@ -116,27 +141,76 @@ Future<void> downloadAndApplyUpdate(
   }
 }
 
-Future<void> _runInstaller(String installerPath) async {
-  final batPath = '${Directory.systemTemp.path}\\chronodesk_update.bat';
-  final bat = '''
-@echo off
-for /l %%i in (1,1,30) do (
-  tasklist /FI "IMAGENAME eq chronodesk_flutter.exe" 2>nul | find /I "chronodesk_flutter.exe" >nul
-  if errorlevel 1 goto install
-  timeout /t 1 /nobreak >nul
-)
-exit /b 1
-:install
-start "" /WAIT "$installerPath" /VERYSILENT /CLOSEAPPLICATIONS /NORESTART
-del "$installerPath"
-del "%~f0"
-''';
-  await File(batPath).writeAsString(bat);
+Future<void> _verifyChecksum(String installerPath) async {
+  final checksumUri = Uri.parse(
+      'https://github.com/$_repo/releases/latest/download/chronodesk-windows-setup.exe.sha256');
+  final client = http.Client();
+  try {
+    final resp = await client.get(checksumUri).timeout(const Duration(seconds: 10));
+    if (resp.statusCode != 200) return;
 
-  final ps =
-      'Start-Process -FilePath "$batPath" -Verb RunAs -WindowStyle Hidden';
-  await Process.start('powershell', ['-Command', ps],
-      runInShell: true, mode: ProcessStartMode.detached);
+    final lines = resp.body.trim().split('\n');
+    if (lines.isEmpty) return;
+    final expectedHash = lines.first.trim().split(' ').first;
+    if (expectedHash.isEmpty || expectedHash.length != 64) return;
+
+    final result = await Process.run('certutil', ['-hashfile', installerPath, 'SHA256']);
+    if (result.exitCode != 0) return;
+    final output = result.stdout.toString().trim();
+    final actualHash = output.split('\n').skip(1).first.trim().replaceAll(' ', '');
+
+    if (actualHash != expectedHash) {
+      File(installerPath).delete();
+      throw Exception(
+          'Installer checksum mismatch. The download may be corrupted or tampered with.');
+    }
+  } catch (e) {
+    if (e is Exception) rethrow;
+  } finally {
+    client.close();
+  }
+}
+
+String _encodePowerShell(String command) {
+  final bytes = <int>[];
+  for (final unit in command.codeUnits) {
+    bytes.add(unit & 0xFF);
+    bytes.add((unit >> 8) & 0xFF);
+  }
+  return base64Encode(bytes);
+}
+
+Future<void> _runInstaller(String installerPath) async {
+  final exeName = Platform.resolvedExecutable
+      .split('\\')
+      .last
+      .replaceAll('.exe', '');
+
+  final script = '''
+\$installer = "$installerPath"
+\$exeName = "$exeName"
+Write-Host "Waiting for \$exeName to exit..."
+while ((Get-Process -Name \$exeName -ErrorAction SilentlyContinue) -ne \$null) {
+    Start-Sleep -Milliseconds 300
+}
+Write-Host "Running installer..."
+Start-Process -FilePath \$installer -ArgumentList "/VERYSILENT","/CLOSEAPPLICATIONS","/NORESTART" -Wait
+Write-Host "Cleaning up..."
+Remove-Item \$installer -Force
+''';
+
+  final encoded = _encodePowerShell(script);
+
+  await Process.start('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    '-Command',
+    'Start-Process', 'powershell',
+    '-ArgumentList', '\'-NoProfile\', \'-ExecutionPolicy\', \'Bypass\', \'-EncodedCommand\', \'$encoded\'',
+    '-Verb', 'RunAs',
+    '-WindowStyle', 'Hidden'
+  ], mode: ProcessStartMode.detached);
+
+  await Future.delayed(const Duration(seconds: 3));
   exit(0);
 }
 

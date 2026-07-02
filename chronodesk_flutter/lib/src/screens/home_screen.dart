@@ -26,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _connecting = false;
   bool _updateDialogOpen = false;
   bool _isUpdating = false;
+  bool _updateAvailable = false;
   bool _audioMuted = false;
   bool _captureKeyboard = true;
   int _rttMs = 0;
@@ -561,7 +562,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void _autoCheckUpdate() {
     if (_updateDialogOpen) return;
     checkForUpdate().then((update) {
-      if (!mounted || update == null) return;
+      if (!mounted) return;
+      if (update == null) {
+        _updateAvailable = false;
+        if (mounted) setState(() {});
+        return;
+      }
+      _updateAvailable = true;
+      if (mounted) setState(() {});
       _updateDialogOpen = true;
       try {
         showDialog(
@@ -593,7 +601,9 @@ class _HomeScreenState extends State<HomeScreen> {
       } catch (_) {
         _updateDialogOpen = false;
       }
-    }).catchError((_) {});
+    }).catchError((_) {
+      _updateAvailable = false;
+    });
   }
 
   void _checkUpdate(BuildContext settingsCtx) {
@@ -628,6 +638,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
       if (!mounted) return;
+      _updateAvailable = true;
+      if (mounted) setState(() {});
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -662,7 +674,9 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }).catchError((_) {
       if (mounted) {
-        if (settingsCtx.mounted) Navigator.of(settingsCtx).pop();
+        try {
+          Navigator.of(settingsCtx, rootNavigator: true).pop();
+        } catch (_) {}
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to check for updates. Check your internet connection.')),
         );
@@ -674,40 +688,57 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isUpdating) return;
     _isUpdating = true;
     final progressState = ValueNotifier<double>(0.0);
+    final progressText = ValueNotifier<String>('Downloading...');
+    BuildContext? dialogContext;
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Downloading Update...'),
-        content: ValueListenableBuilder<double>(
-          valueListenable: progressState,
-          builder: (ctx, progress, _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, value: progress > 0 ? progress : null)),
-                  const SizedBox(width: 16),
-                  Text(progress > 0 ? '${(progress * 100).toInt()}%' : 'Downloading...'),
+      builder: (ctx) {
+        dialogContext = ctx;
+        return AlertDialog(
+          title: const Text('Downloading Update...'),
+          content: ValueListenableBuilder<double>(
+            valueListenable: progressState,
+            builder: (ctx, progress, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, value: progress > 0 ? progress : null)),
+                    const SizedBox(width: 16),
+                    ValueListenableBuilder<String>(
+                      valueListenable: progressText,
+                      builder: (ctx, text, _) => Text(text),
+                    ),
+                  ],
+                ),
+                if (progress > 0) ...[
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(value: progress),
                 ],
-              ),
-              if (progress > 0) ...[
-                const SizedBox(height: 8),
-                LinearProgressIndicator(value: progress),
               ],
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
     downloadAndApplyUpdate((received, total) {
-      progressState.value = received / total;
+      if (total > 0) {
+        progressState.value = received / total;
+        progressText.value = '${(received / total * 100).toInt()}%';
+      } else {
+        progressText.value = '${(received ~/ 1024)} KB downloaded';
+      }
     }).then((_) {
       _isUpdating = false;
     }).catchError((e) {
       _isUpdating = false;
       if (mounted) {
-        Navigator.of(context).pop();
+        try {
+          if (dialogContext != null && dialogContext!.mounted) {
+            Navigator.of(dialogContext!).pop();
+          }
+        } catch (_) {}
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Update failed: $e')),
         );
@@ -726,10 +757,14 @@ class _HomeScreenState extends State<HomeScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          IconButton(
-            icon: Icon(Icons.settings, color: Colors.grey.shade400),
-            onPressed: _showSettings,
-            tooltip: 'Settings',
+          Badge(
+            isLabelVisible: _updateAvailable,
+            label: const Icon(Icons.system_update, size: 12),
+            child: IconButton(
+              icon: Icon(Icons.settings, color: Colors.grey.shade400),
+              onPressed: _showSettings,
+              tooltip: 'Settings',
+            ),
           ),
         ],
       ),
@@ -747,6 +782,26 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 24),
           Icon(Icons.desktop_windows, size: 64, color: Colors.blueGrey.shade300),
           const SizedBox(height: 32),
+          if (_updateAvailable) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.cyan.withAlpha(25),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.cyan.shade700),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.system_update, size: 18, color: Colors.cyan.shade300),
+                  const SizedBox(width: 8),
+                  Text('Update available — Open Settings',
+                    style: TextStyle(fontSize: 13, color: Colors.cyan.shade200)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
           Text(
             'Your ID',
             style: TextStyle(fontSize: 14, color: Colors.grey.shade400, letterSpacing: 1),
