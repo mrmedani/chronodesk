@@ -20,9 +20,8 @@ pub fn init() {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(&path, "");
     let mut log = LOG.lock().unwrap_or_else(|e| e.into_inner());
-    *log = Some(path);
+    *log = Some(path.clone());
 
     let panic_path = log_path().clone();
     let desk = if cfg!(target_os = "windows") {

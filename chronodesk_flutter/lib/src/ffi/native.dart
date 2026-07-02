@@ -17,6 +17,7 @@ void ensureInitialized() {
     }
   } catch (e) {
     _loadError = 'Failed to load native library: $e';
+    rethrow;
   }
 }
 
@@ -100,11 +101,29 @@ final chronodeskSendInputKey = _nativeLib.lookupFunction<
     Void Function(Uint64, Bool),
     void Function(int, bool)>('chronodesk_send_input_key');
 
+final chronodeskSendFile = _nativeLib.lookupFunction<
+    Pointer<Utf8> Function(Pointer<Utf8>),
+    Pointer<Utf8> Function(Pointer<Utf8>)>('chronodesk_send_file');
+
+final chronodeskAcceptFileTransfer = _nativeLib.lookupFunction<
+    Void Function(Pointer<Utf8>),
+    void Function(Pointer<Utf8>)>('chronodesk_accept_file_transfer');
+
+final chronodeskRejectFileTransfer = _nativeLib.lookupFunction<
+    Void Function(Pointer<Utf8>),
+    void Function(Pointer<Utf8>)>('chronodesk_reject_file_transfer');
+
+final chronodeskCancelFileTransfer = _nativeLib.lookupFunction<
+    Void Function(Pointer<Utf8>),
+    void Function(Pointer<Utf8>)>('chronodesk_cancel_file_transfer');
+
 String? _readCString(Pointer<Utf8> ptr) {
   if (ptr == nullptr) return null;
-  final s = ptr.toDartString();
-  chronodeskFreeString(ptr);
-  return s;
+  try {
+    return ptr.toDartString();
+  } finally {
+    chronodeskFreeString(ptr);
+  }
 }
 
 String getPeerId() {
@@ -143,3 +162,29 @@ void setConfig(String key, String value) {
   malloc.free(k);
   malloc.free(v);
 }
+
+String sendFile(String path) {
+  final p = path.toNativeUtf8();
+  final ptr = chronodeskSendFile(p);
+  malloc.free(p);
+  return _readCString(ptr) ?? '';
+}
+
+void acceptFileTransfer(String id) {
+  final i = id.toNativeUtf8();
+  chronodeskAcceptFileTransfer(i);
+  malloc.free(i);
+}
+
+void rejectFileTransfer(String id) {
+  final i = id.toNativeUtf8();
+  chronodeskRejectFileTransfer(i);
+  malloc.free(i);
+}
+
+void cancelFileTransfer(String id) {
+  final i = id.toNativeUtf8();
+  chronodeskCancelFileTransfer(i);
+  malloc.free(i);
+}
+

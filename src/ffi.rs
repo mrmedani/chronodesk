@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 fn rt() -> &'static Runtime {
-    RUNTIME.get_or_init(|| Runtime::new().expect("Failed to create tokio runtime"))
+    RUNTIME.get_or_init(|| Runtime::new().expect("FATAL: Failed to create tokio runtime"))
 }
 
 struct AppState {
@@ -27,6 +27,8 @@ struct AppState {
     pending_offer: Option<(String, String)>,
     transport_tx: Option<mpsc::UnboundedSender<TrCmd>>,
     signaling_tx: Option<mpsc::UnboundedSender<SigCmd>>,
+    crypto_session: Option<crate::crypto::CryptoSession>,
+    file_transfer_manager: crate::file_transfer::FileTransferManager,
 }
 
 static STATE: OnceLock<Mutex<AppState>> = OnceLock::new();
@@ -45,6 +47,8 @@ fn state() -> &'static Mutex<AppState> {
             pending_offer: None,
             transport_tx: None,
             signaling_tx: None,
+            crypto_session: None,
+            file_transfer_manager: crate::file_transfer::FileTransferManager::new(),
         })
     })
 }
@@ -55,6 +59,10 @@ fn lock_state() -> std::sync::MutexGuard<'static, AppState> {
 
 fn push_event(json: &str) {
     lock_state().events.push(json.to_string());
+}
+
+fn push_event_obj(value: &serde_json::Value) {
+    lock_state().events.push(value.to_string());
 }
 
 fn load_or_create_id() -> String {
@@ -110,10 +118,14 @@ fn load_config() -> serde_json::Value {
 fn save_config(config: &serde_json::Value) {
     let path = config_path();
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            logger::write_log(&format!("config mkdir error: {e}"));
+        }
     }
     if let Ok(s) = serde_json::to_string(config) {
-        let _ = std::fs::write(&path, &s);
+        if let Err(e) = std::fs::write(&path, &s) {
+            logger::write_log(&format!("config write error: {e}"));
+        }
     }
 }
 
@@ -151,6 +163,16 @@ fn get_turn_config() -> Option<crate::network::transport::TurnConfig> {
     })
 }
 
+fn get_download_dir() -> std::path::PathBuf {
+    let config = load_config();
+    config
+        .get("download_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("chronodesk"))
+}
+
 #[no_mangle]
 pub extern "C" fn chronodesk_init() {
     logger::init();
@@ -158,10 +180,7 @@ pub extern "C" fn chronodesk_init() {
     let addr = get_signaling_addr();
     let id = load_or_create_id();
     lock_state().peer_id = id.clone();
-    push_event(&format!(
-        r#"{{"type":"init","peer_id":"{}","signaling_addr":"{}"}}"#,
-        id, addr
-    ));
+    push_event_obj(&serde_json::json!({"type":"init","peer_id":id,"signaling_addr":addr}));
     logger::write_log(&format!("init complete — peer_id={id} addr={addr}"));
     let addr2 = addr.clone();
     let id2 = id.clone();
@@ -169,9 +188,7 @@ pub extern "C" fn chronodesk_init() {
         logger::write_log("run_loop starting");
         if let Err(e) = run_loop(&addr2, &id2).await {
             logger::write_log(&format!("run_loop exited with error: {e}"));
-            push_event(&format!(
-                r#"{{"type":"error","msg":"Internal error: {e}"}}"#
-            ));
+            push_event_obj(&serde_json::json!({"type":"error","msg":format!("Internal error: {e}")}));
         } else {
             logger::write_log("run_loop exited cleanly");
         }
@@ -213,10 +230,7 @@ pub extern "C" fn chronodesk_set_config(
     }
     config[&key] = serde_json::json!(&value);
     save_config(&config);
-    push_event(&format!(
-        r#"{{"type":"config_updated","key":"{}","value":"{}"}}"#,
-        key, value
-    ));
+    push_event_obj(&serde_json::json!({"type":"config_updated","key":key,"value":value}));
 }
 
 async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error> {
@@ -235,10 +249,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
             Ok(t) => t,
             Err(e) => {
                 logger::write_log(&format!("Transport init FAILED: {e}"));
-                push_event(&format!(
-                    r#"{{"type":"error","msg":"Transport init: {}"}}"#,
-                    e
-                ));
+                push_event_obj(&serde_json::json!({"type":"error","msg":format!("Transport init: {e}")}));
                 return Ok(());
             }
         };
@@ -253,7 +264,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
 
     tokio::spawn(async move {
         if let Err(e) = signaling_client.run().await {
-            push_event(&format!(r#"{{"type":"error","msg":"Signaling: {}"}}"#, e));
+            push_event_obj(&serde_json::json!({"type":"error","msg":format!("Signaling: {e}")}));
         }
     });
 
@@ -270,6 +281,9 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
     let mut frame_count: i64 = 0;
     let mut ping_interval: i32 = 0;
 
+    let mut local_private_key: Option<ring::agreement::EphemeralPrivateKey> = None;
+    let mut crypto_session: Option<crate::crypto::CryptoSession> = None;
+
     loop {
         tokio::select! {
             Some(event) = signal_events.recv() => {
@@ -281,7 +295,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                         }
                         drop(s);
                         lock_state().pending_offer = Some((from.clone(), sdp));
-                        push_event(&format!(r#"{{"type":"connection_request","from":"{}"}}"#, from));
+                        push_event_obj(&serde_json::json!({"type":"connection_request","from":from}));
                     }
                     SignalEvent::Answer { from, sdp } => {
                         let _ = transport_tx.send(TrCmd::HandleAnswer(from, sdp));
@@ -291,34 +305,62 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                     }
                     SignalEvent::PeerList(_) => {}
                     SignalEvent::Error(msg) => {
-                        push_event(&format!(r#"{{"type":"error","msg":"{}"}}"#, msg));
+                        push_event_obj(&serde_json::json!({"type":"error","msg":msg}));
                     }
                 }
             }
             Some(event) = transport_events.recv() => {
                 match event {
                     TransportEvent::Connected { .. } => {
-                        let was_host = lock_state().is_host;
-                        lock_state().connected = true;
+                        let was_host = {
+                            let mut s = lock_state();
+                            let h = s.is_host;
+                            s.connected = true;
+                            h
+                        };
                         capture_active = was_host;
 
                         if was_host {
                             match crate::audio::AudioCapture::new() {
                                 Ok((cap, rx)) => {
                                     audio_rx = Some(rx);
-                                    audio_capture = Some((cap, crate::audio::AudioCodec::new().unwrap()));
-                                    logger::write_log("audio capture started (host)");
+                                    match crate::audio::AudioCodec::new() {
+                                        Ok(codec) => {
+                                            audio_capture = Some((cap, codec));
+                                            logger::write_log("audio capture started (host)");
+                                        }
+                                        Err(e) => logger::write_log(&format!("audio codec init failed: {e}")),
+                                    }
                                 }
                                 Err(e) => logger::write_log(&format!("audio capture failed: {e}")),
                             }
                         } else {
                             match crate::audio::AudioPlayer::new() {
                                 Ok(player) => {
-                                    let codec = crate::audio::AudioCodec::new().unwrap();
-                                    audio_player = Some((player, codec));
+                                    match crate::audio::AudioCodec::new() {
+                                        Ok(codec) => {
+                                            audio_player = Some((player, codec));
+                                            logger::write_log("audio player started (viewer)");
+                                        }
+                                        Err(e) => logger::write_log(&format!("audio codec init failed: {e}")),
+                                    }
                                     logger::write_log("audio player started (viewer)");
                                 }
                                 Err(e) => logger::write_log(&format!("audio player failed: {e}")),
+                            }
+                        }
+
+                        if was_host {
+                            match crate::crypto::generate_keypair() {
+                                Ok((priv_key, pub_key)) => {
+                                    local_private_key = Some(priv_key);
+                                    let handshake = ChannelMessage::Handshake { public_key: pub_key };
+                                    if let Err(e) = transport.send_message(&handshake).await {
+                                        logger::write_log(&format!("failed to send crypto handshake: {e}"));
+                                    }
+                                    logger::write_log("sent crypto handshake (host)");
+                                }
+                                Err(e) => logger::write_log(&format!("crypto keypair generation failed: {e}")),
                             }
                         }
 
@@ -335,17 +377,102 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                         audio_player = None;
                         audio_rx = None;
                         clipboard_rx = None;
-                        lock_state().connected = false;
-                        lock_state().is_host = false;
+                        {
+                            let mut s = lock_state();
+                            s.connected = false;
+                            s.is_host = false;
+                            s.crypto_session = None;
+                            // Clean up any in-progress file transfers
+                            let part_files: Vec<std::path::PathBuf> = s.file_transfer_manager.incoming.values().map(|t| t.file_path.clone()).collect();
+                            s.file_transfer_manager.incoming.clear();
+                            s.file_transfer_manager.outgoing.clear();
+                            for p in part_files {
+                                let _ = std::fs::remove_file(&p);
+                            }
+                        }
                         logger::write_log("transport disconnected");
                         push_event(r#"{"type":"disconnected"}"#);
                     }
                     TransportEvent::MessageReceived { msg } => {
-                        match msg {
+                        // Handle key exchange handshake (always unencrypted, before crypto_session is set)
+                        if let ChannelMessage::Handshake { public_key } = &msg {
+                            if let Some(priv_key) = local_private_key.take() {
+                                match crate::crypto::compute_shared_secret(priv_key, public_key) {
+                                    Ok(shared) => {
+                                        match crate::crypto::derive_session_key(&shared) {
+                                            Ok(key) => {
+                                                match crate::crypto::CryptoSession::new(&key) {
+                                                    Ok(session) => {
+                                                        logger::write_log("crypto handshake complete (host)");
+                                                        crypto_session = Some(session.clone());
+                                                        lock_state().crypto_session = Some(session);
+                                                    }
+                                                    Err(e) => logger::write_log(&format!("crypto session init failed: {e}")),
+                                                }
+                                            }
+                                            Err(e) => logger::write_log(&format!("crypto key derivation failed: {e}")),
+                                        }
+                                    }
+                                    Err(e) => logger::write_log(&format!("crypto shared secret failed: {e}")),
+                                }
+                            } else {
+                                match crate::crypto::generate_keypair() {
+                                    Ok((priv_key, my_pub_key)) => {
+                                        match crate::crypto::compute_shared_secret(priv_key, public_key) {
+                                            Ok(shared) => {
+                                                match crate::crypto::derive_session_key(&shared) {
+                                                    Ok(key) => {
+                                                        match crate::crypto::CryptoSession::new(&key) {
+                                                            Ok(session) => {
+                                                                logger::write_log("crypto handshake complete (viewer)");
+                                                                crypto_session = Some(session.clone());
+                                                                lock_state().crypto_session = Some(session);
+                                                                let resp = ChannelMessage::Handshake { public_key: my_pub_key };
+                                                                if let Err(e) = transport.send_message(&resp).await {
+                                                                    logger::write_log(&format!("failed to send crypto response: {e}"));
+                                                                }
+                                                            }
+                                                            Err(e) => logger::write_log(&format!("crypto session init failed: {e}")),
+                                                        }
+                                                    }
+                                                    Err(e) => logger::write_log(&format!("crypto key derivation failed: {e}")),
+                                                }
+                                            }
+                                            Err(e) => logger::write_log(&format!("crypto shared secret failed: {e}")),
+                                        }
+                                    }
+                                    Err(e) => logger::write_log(&format!("crypto viewer keypair failed: {e}")),
+                                }
+                            }
+                            continue;
+                        }
+
+                        // Decrypt if encrypted; otherwise use as-is (backward compat)
+                        let inner = match msg {
+                            ChannelMessage::Encrypted { data } => {
+                                if let Some(ref session) = crypto_session {
+                                    match session.decrypt(&data) {
+                                        Ok(plaintext) => match bincode::deserialize::<ChannelMessage>(&plaintext) {
+                                            Ok(decoded) => decoded,
+                                            Err(_) => continue,
+                                        },
+                                        Err(_) => continue,
+                                    }
+                                } else {
+                                    continue;
+                                }
+                            }
+                            other => other,
+                        };
+
+                        match inner {
                             ChannelMessage::VideoFrame { width, height, codec, data } => {
                                 let rgba = match codec {
                                     0 | 2 => jpeg_to_rgba(&data, width as usize, height as usize),
-                                    _ => Vec::new(),
+                                    _ => {
+                                        logger::write_log(&format!("unsupported video codec {codec}, size={}", data.len()));
+                                        Vec::new()
+                                    }
                                 };
                                 if !rgba.is_empty() {
                                     let mut s = lock_state();
@@ -389,23 +516,149 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                             }
                             ChannelMessage::Clipboard { text } => {
                                 crate::clipboard::ClipboardSync::write(&text);
-                                push_event(&format!(r#"{{"type":"clipboard","text":"{}"}}"#, text));
+                                push_event_obj(&serde_json::json!({"type":"clipboard","text":text}));
                             }
                             ChannelMessage::Ping { .. } => {
                                 let pong = ChannelMessage::Pong { timestamp: 0 };
-                                let _ = transport.send_message(&pong).await;
+                                if let Some(ref session) = crypto_session {
+                                    if let Ok(data) = bincode::serialize(&pong) {
+                                        if let Ok(encrypted) = session.encrypt(&data) {
+                                            let _ = transport.send_message(&ChannelMessage::Encrypted { data: encrypted }).await;
+                                        }
+                                    }
+                                } else {
+                                    let _ = transport.send_message(&pong).await;
+                                }
                             }
                             ChannelMessage::Pong { .. } => {
                                 quality_ctrl.record_pong_received();
                             }
+                            ChannelMessage::FileTransferRequest { id, name, size } => {
+                                let safe_name = crate::file_transfer::sanitize_filename(&name);
+                                let dir = get_download_dir();
+                                if let Err(e) = std::fs::create_dir_all(&dir) {
+                                    logger::write_log(&format!("file transfer mkdir error: {e}"));
+                                }
+                                let part_path = dir.join(format!("{id}_{safe_name}.part"));
+                                match std::fs::File::create(&part_path) {
+                                    Ok(_file) => {
+                                        let transfer = crate::file_transfer::IncomingTransfer {
+                                            file_path: part_path,
+                                            name: safe_name.clone(),
+                                            total_size: size,
+                                            bytes_received: 0,
+                                        };
+                                        lock_state().file_transfer_manager.incoming.insert(id.clone(), transfer);
+                                        push_event_obj(&serde_json::json!({"type":"file_request","id":id,"name":name,"size":size}));
+                                    }
+                                    Err(e) => {
+                                        logger::write_log(&format!("file transfer create error: {e}"));
+                                        push_event_obj(&serde_json::json!({"type":"file_error","id":id,"msg":format!("cannot create file for {name}")}));
+                                    }
+                                }
+                            }
+                            ChannelMessage::FileTransferAccept { id } => {
+                                let mut outgoing = lock_state().file_transfer_manager.outgoing.remove(&id);
+                                if let Some(ref mut outgoing) = outgoing {
+                                    let total = outgoing.total_size;
+                                    let name = outgoing.name.clone();
+                                    let mut idx = 0u64;
+                                    while let Some((offset, data)) = crate::file_transfer::read_chunk(outgoing) {
+                                        let chunk = ChannelMessage::FileTransferChunk {
+                                            id: id.clone(),
+                                            offset,
+                                            data,
+                                        };
+                                        if let Some(ref session) = crypto_session {
+                                            if let Ok(ser) = bincode::serialize(&chunk) {
+                                                if let Ok(enc) = session.encrypt(&ser) {
+                                                    let _ = transport.send_message(&ChannelMessage::Encrypted { data: enc }).await;
+                                                }
+                                            }
+                                        } else {
+                                            let _ = transport.send_message(&chunk).await;
+                                        }
+                                        if idx % 16 == 0 || outgoing.offset >= total {
+                                            push_event_obj(&serde_json::json!({"type":"file_progress","id":id,"bytes_sent":outgoing.offset.min(total),"total_size":total}));
+                                        }
+                                        idx += 1;
+                                    }
+                                    let complete = ChannelMessage::FileTransferComplete { id: id.clone() };
+                                    if let Some(ref session) = crypto_session {
+                                        if let Ok(ser) = bincode::serialize(&complete) {
+                                            if let Ok(enc) = session.encrypt(&ser) {
+                                                let _ = transport.send_message(&ChannelMessage::Encrypted { data: enc }).await;
+                                            }
+                                        }
+                                    } else {
+                                        let _ = transport.send_message(&complete).await;
+                                    }
+                                    push_event_obj(&serde_json::json!({"type":"file_sent","id":id,"name":name,"size":total}));
+                                }
+                            }
+                            ChannelMessage::FileTransferReject { id } => {
+                                lock_state().file_transfer_manager.outgoing.remove(&id);
+                                push_event_obj(&serde_json::json!({"type":"file_rejected","id":id}));
+                            }
+                            ChannelMessage::FileTransferChunk { id, offset, data } => {
+                                let mut s = lock_state();
+                                let mut io_failed = false;
+                                if let Some(ref mut t) = s.file_transfer_manager.incoming.get_mut(&id) {
+                                    use std::io::{SeekFrom, Write};
+                                    match std::fs::OpenOptions::new().write(true).open(&t.file_path) {
+                                        Ok(mut file) => {
+                                            if let Err(e) = std::io::Seek::seek(&mut file, SeekFrom::Start(offset)).and_then(|_| file.write_all(&data)) {
+                                                logger::write_log(&format!("file chunk write error: {e}"));
+                                                io_failed = true;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            logger::write_log(&format!("file chunk open error: {e}"));
+                                            io_failed = true;
+                                        }
+                                    }
+                                    if io_failed {
+                                        let name = t.name.clone();
+                                        let _ = std::fs::remove_file(&t.file_path);
+                                        s.file_transfer_manager.incoming.remove(&id);
+                                        drop(s);
+                                        push_event_obj(&serde_json::json!({"type":"file_error","id":id,"msg":format!("IO error writing chunk for {name}")}));
+                                    } else {
+                                        t.bytes_received += data.len() as u64;
+                                        let done = t.bytes_received >= t.total_size;
+                                        if done {
+                                            if let Some(t) = s.file_transfer_manager.incoming.remove(&id) {
+                                                let final_path = get_download_dir().join(&t.name);
+                                                if let Err(e) = std::fs::rename(&t.file_path, &final_path) {
+                                                    logger::write_log(&format!("file rename error: {e}"));
+                                                }
+                                                drop(s);
+                                                push_event_obj(&serde_json::json!({"type":"file_complete","id":id,"name":t.name,"size":t.total_size,"path":final_path.to_string_lossy()}));
+                                            }
+                                        } else {
+                                            drop(s);
+                                            push_event_obj(&serde_json::json!({"type":"file_progress","id":id,"bytes_received":t.bytes_received,"total_size":t.total_size}));
+                                        }
+                                    }
+                                }
+                            }
+                            ChannelMessage::FileTransferComplete { id } => {
+                                let mut s = lock_state();
+                                if let Some(t) = s.file_transfer_manager.incoming.remove(&id) {
+                                    let final_path = get_download_dir().join(&t.name);
+                                    if let Err(e) = std::fs::rename(&t.file_path, &final_path) {
+                                        logger::write_log(&format!("file rename error: {e}"));
+                                    }
+                                    drop(s);
+                                    push_event_obj(&serde_json::json!({"type":"file_complete","id":id,"name":t.name,"size":t.total_size,"path":final_path.to_string_lossy()}));
+                                }
+                            }
+                            ChannelMessage::FileTransferError { id, message } => {
+                                lock_state().file_transfer_manager.outgoing.remove(&id);
+                                push_event_obj(&serde_json::json!({"type":"file_error","id":id,"msg":message}));
+                            }
                         }
                     }
-                    TransportEvent::Error { msg } => {
-                        logger::write_log(&format!("Transport error: {msg}"));
-                        push_event(&format!(r#"{{"type":"error","msg":"{}"}}"#, msg));
-                    }
-                }
-            }
             Some(audio_samples) = async {
                 if let Some(ref mut rx) = audio_rx.as_mut() {
                     rx.recv().await
@@ -421,7 +674,15 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                             sample_rate: crate::audio::SAMPLE_RATE,
                             channels: 2,
                         };
-                        let _ = transport.send_message(&msg).await;
+                        if let Some(ref session) = crypto_session {
+                            if let Ok(data) = bincode::serialize(&msg) {
+                                if let Ok(encrypted) = session.encrypt(&data) {
+                                    let _ = transport.send_message(&ChannelMessage::Encrypted { data: encrypted }).await;
+                                }
+                            }
+                        } else {
+                            let _ = transport.send_message(&msg).await;
+                        }
                     }
                 }
             }
@@ -434,7 +695,15 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
             } => {
                 if capture_active {
                     let msg = ChannelMessage::Clipboard { text: clip_text };
-                    let _ = transport.send_message(&msg).await;
+                    if let Some(ref session) = crypto_session {
+                        if let Ok(data) = bincode::serialize(&msg) {
+                            if let Ok(encrypted) = session.encrypt(&data) {
+                                let _ = transport.send_message(&ChannelMessage::Encrypted { data: encrypted }).await;
+                            }
+                        }
+                    } else {
+                        let _ = transport.send_message(&msg).await;
+                    }
                 }
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(16)) => {
@@ -443,7 +712,15 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                     ping_interval = 0;
                     quality_ctrl.record_ping_sent();
                     let ping = ChannelMessage::Ping { timestamp: 0 };
-                    let _ = transport.send_message(&ping).await;
+                    if let Some(ref session) = crypto_session {
+                        if let Ok(data) = bincode::serialize(&ping) {
+                            if let Ok(encrypted) = session.encrypt(&data) {
+                                let _ = transport.send_message(&ChannelMessage::Encrypted { data: encrypted }).await;
+                            }
+                        }
+                    } else {
+                        let _ = transport.send_message(&ping).await;
+                    }
                 }
 
                 if capture_active {
@@ -484,7 +761,15 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                                             codec: codec_id,
                                             data: pkt.data.clone(),
                                         };
-                                        let _ = transport.send_message(&msg).await;
+                                        if let Some(ref session) = crypto_session {
+                                            if let Ok(data) = bincode::serialize(&msg) {
+                                                if let Ok(encrypted) = session.encrypt(&data) {
+                                                    let _ = transport.send_message(&ChannelMessage::Encrypted { data: encrypted }).await;
+                                                }
+                                            }
+                                        } else {
+                                            let _ = transport.send_message(&msg).await;
+                                        }
                                     }
                                 }
                             }
@@ -545,7 +830,7 @@ pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
         let s = lock_state();
         if let Some(ref tx) = s.transport_tx {
             logger::write_log(&format!("sending CreateOffer to {target}"));
-            push_event(&format!(r#"{{"type":"connecting","to":"{}"}}"#, target));
+            push_event_obj(&serde_json::json!({"type":"connecting","to":target}));
             if let Err(e) = tx.send(TrCmd::CreateOffer(target)) {
                 logger::write_log(&format!("CreateOffer send failed: {e}"));
                 push_event(
@@ -561,10 +846,12 @@ pub extern "C" fn chronodesk_connect(peer_id: *const std::ffi::c_char) {
 
 #[no_mangle]
 pub extern "C" fn chronodesk_accept() {
-    let pending = lock_state().pending_offer.take();
+    let (pending, tx) = {
+        let mut s = lock_state();
+        s.is_host = true;
+        (s.pending_offer.take(), s.transport_tx.clone())
+    };
     if let Some((from, sdp)) = pending {
-        lock_state().is_host = true;
-        let tx = lock_state().transport_tx.clone();
         if let Some(ref tx) = tx {
             if let Err(e) = tx.send(TrCmd::HandleOffer(from, sdp)) {
                 logger::write_log(&format!("HandleOffer send failed: {e}"));
@@ -576,7 +863,10 @@ pub extern "C" fn chronodesk_accept() {
 
 #[no_mangle]
 pub extern "C" fn chronodesk_deny() {
-    lock_state().pending_offer = None;
+    let had_pending = lock_state().pending_offer.take().is_some();
+    if !had_pending {
+        logger::write_log("chronodesk_deny called but no pending offer");
+    }
     push_event(r#"{"type":"denied"}"#);
 }
 
@@ -635,33 +925,44 @@ pub extern "C" fn chronodesk_free_frame(ptr: *mut u8) {
     }
 }
 
+fn encrypt_input_msg(s: &AppState, inner: ChannelMessage) -> ChannelMessage {
+    if let Some(ref session) = s.crypto_session {
+        if let Ok(data) = bincode::serialize(&inner) {
+            if let Ok(encrypted) = session.encrypt(&data) {
+                return ChannelMessage::Encrypted { data: encrypted };
+            }
+        }
+    }
+    inner
+}
+
 #[no_mangle]
 pub extern "C" fn chronodesk_send_input_move(x: i32, y: i32) {
-    let tx = lock_state().transport_tx.clone();
+    let s = lock_state();
+    let tx = s.transport_tx.clone();
     if let Some(ref tx) = tx {
-        let _ = tx.send(TrCmd::SendMessage(ChannelMessage::InputMove { x, y }));
+        let msg = encrypt_input_msg(&s, ChannelMessage::InputMove { x, y });
+        let _ = tx.send(TrCmd::SendMessage(msg));
     }
 }
 
 #[no_mangle]
 pub extern "C" fn chronodesk_send_input_click(button: u8, pressed: bool) {
-    let tx = lock_state().transport_tx.clone();
+    let s = lock_state();
+    let tx = s.transport_tx.clone();
     if let Some(ref tx) = tx {
-        let _ = tx.send(TrCmd::SendMessage(ChannelMessage::InputClick {
-            button,
-            pressed,
-        }));
+        let msg = encrypt_input_msg(&s, ChannelMessage::InputClick { button, pressed });
+        let _ = tx.send(TrCmd::SendMessage(msg));
     }
 }
 
 #[no_mangle]
 pub extern "C" fn chronodesk_send_input_key(key: u64, pressed: bool) {
-    let tx = lock_state().transport_tx.clone();
+    let s = lock_state();
+    let tx = s.transport_tx.clone();
     if let Some(ref tx) = tx {
-        let _ = tx.send(TrCmd::SendMessage(ChannelMessage::InputKey {
-            key,
-            pressed,
-        }));
+        let msg = encrypt_input_msg(&s, ChannelMessage::InputKey { key, pressed });
+        let _ = tx.send(TrCmd::SendMessage(msg));
     }
 }
 
@@ -670,3 +971,160 @@ pub extern "C" fn chronodesk_get_log() -> *mut std::ffi::c_char {
     let log = logger::read_log();
     CString::new(log).unwrap_or_default().into_raw()
 }
+
+#[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "C" fn chronodesk_send_file(path: *const std::ffi::c_char) -> *mut std::ffi::c_char {
+    if path.is_null() {
+        return CString::new("").unwrap_or_default().into_raw();
+    }
+    let path = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => return CString::new("").unwrap_or_default().into_raw(),
+    };
+    let result = match crate::file_transfer::FileTransferManager::prepare_outgoing(&path) {
+        Ok((id, outgoing)) => {
+            let total_size = outgoing.total_size;
+            let name = outgoing.name.clone();
+            let s = lock_state();
+            let owned_id = id.clone();
+            let msg = ChannelMessage::FileTransferRequest {
+                id: owned_id,
+                name: name.clone(),
+                size: total_size,
+            };
+            let request = if let Some(ref session) = s.crypto_session {
+                if let Ok(data) = bincode::serialize(&msg) {
+                    if let Ok(encrypted) = session.encrypt(&data) {
+                        ChannelMessage::Encrypted { data: encrypted }
+                    } else {
+                        msg
+                    }
+                } else {
+                    msg
+                }
+            } else {
+                msg
+            };
+            if let Some(ref tx) = s.transport_tx {
+                let _ = tx.send(TrCmd::SendMessage(request));
+            }
+            drop(s);
+            lock_state().file_transfer_manager.outgoing.insert(id.clone(), outgoing);
+            id
+        }
+        Err(e) => {
+            logger::write_log(&format!("send_file failed: {e}"));
+            String::new()
+        }
+    };
+    CString::new(result).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "C" fn chronodesk_accept_file_transfer(id: *const std::ffi::c_char) {
+    if id.is_null() {
+        return;
+    }
+    let id = unsafe { CStr::from_ptr(id) }
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+    if id.is_empty() {
+        return;
+    }
+    let msg = ChannelMessage::FileTransferAccept { id };
+    let s = lock_state();
+    if let Some(ref tx) = s.transport_tx {
+        let send_msg = if let Some(ref session) = s.crypto_session {
+            if let Ok(data) = bincode::serialize(&msg) {
+                if let Ok(encrypted) = session.encrypt(&data) {
+                    ChannelMessage::Encrypted { data: encrypted }
+                } else {
+                    msg
+                }
+            } else {
+                msg
+            }
+        } else {
+            msg
+        };
+        let _ = tx.send(TrCmd::SendMessage(send_msg));
+    }
+}
+
+#[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "C" fn chronodesk_reject_file_transfer(id: *const std::ffi::c_char) {
+    if id.is_null() {
+        return;
+    }
+    let id = unsafe { CStr::from_ptr(id) }
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+    if id.is_empty() {
+        return;
+    }
+    let msg = ChannelMessage::FileTransferReject { id };
+    let s = lock_state();
+    if let Some(ref tx) = s.transport_tx {
+        let send_msg = if let Some(ref session) = s.crypto_session {
+            if let Ok(data) = bincode::serialize(&msg) {
+                if let Ok(encrypted) = session.encrypt(&data) {
+                    ChannelMessage::Encrypted { data: encrypted }
+                } else {
+                    msg
+                }
+            } else {
+                msg
+            }
+        } else {
+            msg
+        };
+        let _ = tx.send(TrCmd::SendMessage(send_msg));
+    }
+}
+
+#[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "C" fn chronodesk_cancel_file_transfer(id: *const std::ffi::c_char) {
+    if id.is_null() {
+        return;
+    }
+    let id = unsafe { CStr::from_ptr(id) }
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+    if id.is_empty() {
+        return;
+    }
+    let mut s = lock_state();
+    let dir = get_download_dir();
+    if let Some((name, _was_incoming)) = s.file_transfer_manager.cancel_transfer(&id, &dir) {
+        let error_msg = ChannelMessage::FileTransferError {
+            id: id.clone(),
+            message: "cancelled".to_string(),
+        };
+        if let Some(ref tx) = s.transport_tx {
+            let send_msg = if let Some(ref session) = s.crypto_session {
+                if let Ok(data) = bincode::serialize(&error_msg) {
+                    if let Ok(encrypted) = session.encrypt(&data) {
+                        ChannelMessage::Encrypted { data: encrypted }
+                    } else {
+                        error_msg
+                    }
+                } else {
+                    error_msg
+                }
+            } else {
+                error_msg
+            };
+            let _ = tx.send(TrCmd::SendMessage(send_msg));
+        }
+        drop(s);
+        push_event_obj(&serde_json::json!({"type":"file_cancelled","id":id,"name":name}));
+    }
+}
+

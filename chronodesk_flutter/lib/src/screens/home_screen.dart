@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
+import 'dart:ffi' hide Size;
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ffi/ffi.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../ffi/native.dart' as native;
 import '../update_checker.dart';
@@ -27,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _updateDialogOpen = false;
   bool _isUpdating = false;
   bool _audioMuted = false;
+  bool _captureKeyboard = true;
   int _rttMs = 0;
   int _qualityLevel = 85;
   int _targetFps = 30;
@@ -37,11 +38,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _frameTimer;
   Timer? _connectTimer;
   Timer? _updateTimer;
+  Map<String, Map<String, dynamic>> _activeTransfers = {};
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _addrController = TextEditingController();
   final TextEditingController _turnUrlController = TextEditingController();
   final TextEditingController _turnUserController = TextEditingController();
   final TextEditingController _turnPassController = TextEditingController();
+  final TextEditingController _downloadDirController = TextEditingController();
 
   @override
   void initState() {
@@ -52,7 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
     native.chronodeskInit();
     Future.delayed(const Duration(milliseconds: 500), () {
       _peerId = native.getPeerId();
-      setState(() {});
+      if (mounted) setState(() {});
     });
     Future.delayed(const Duration(seconds: 2), _autoCheckUpdate);
     _updateTimer = Timer.periodic(const Duration(minutes: 30), (_) => _autoCheckUpdate());
@@ -71,6 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _turnUrlController.dispose();
     _turnUserController.dispose();
     _turnPassController.dispose();
+    _downloadDirController.dispose();
     super.dispose();
   }
 
@@ -103,6 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _connected = false;
             _isHost = false;
             _connecting = false;
+            _frameImage?.dispose();
             _frameImage = null;
             _rttMs = 0;
           });
@@ -124,12 +129,22 @@ class _HomeScreenState extends State<HomeScreen> {
             _targetFps = map['fps'] as int? ?? 30;
           });
         case 'error':
-          _exportLogs();
+          _exportLogs().catchError((_) {});
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Error: ${map['msg'] ?? ''}')),
             );
           }
+        case 'file_request':
+        case 'file_progress':
+        case 'file_complete':
+        case 'file_sent':
+        case 'file_rejected':
+        case 'file_cancelled':
+        case 'file_error':
+          _handleFileTransferEvent(json);
+        default:
+          break;
       }
     } catch (e) {
       debugPrint('_handleEvent error: $e');
@@ -148,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final length = len.value;
         final width = w.value;
         final height = h.value;
-        if (length > 0 && width > 0 && height > 0) {
+        if (length > 0 && width > 0 && height > 0 && data.value != nullptr) {
           final bytes = Uint8List.fromList(data.value.asTypedList(length));
           native.chronodeskFreeFrame(data.value);
           frameFreed = true;
@@ -167,6 +182,148 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _handleFileTransferEvent(String json) {
+    try {
+      final map = jsonDecode(json) as Map<String, dynamic>;
+      final type = map['type'] as String?;
+      final id = map['id'] as String? ?? '';
+      if (type == null || id.isEmpty) return;
+      switch (type) {
+        case 'file_request':
+          final name = map['name'] as String? ?? 'unknown';
+          final size = map['size'] as int? ?? 0;
+          if (mounted) _showFileRequest(id, name, size);
+        case 'file_progress':
+          final bytesReceived = map['bytes_received'] as int?;
+          final bytesSent = map['bytes_sent'] as int?;
+          final totalSize = map['total_size'] as int? ?? 0;
+          setState(() {
+            _activeTransfers[id] = {
+              'bytes': bytesReceived ?? bytesSent ?? 0,
+              'total': totalSize,
+            };
+          });
+        case 'file_complete':
+          final name = map['name'] as String? ?? '';
+          final path = map['path'] as String? ?? '';
+          setState(() => _activeTransfers.remove(id));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('File received: $name'), action: SnackBarAction(label: 'Open', onPressed: () {
+                if (path.isNotEmpty) Process.start('explorer', ['/select,', path]);
+              })),
+            );
+          }
+        case 'file_sent':
+          final name = map['name'] as String? ?? '';
+          final size = map['size'] as int? ?? 0;
+          setState(() => _activeTransfers.remove(id));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('File sent: $name (${_formatSize(size)})')),
+            );
+          }
+        case 'file_rejected':
+          setState(() => _activeTransfers.remove(id));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('File transfer rejected')),
+            );
+          }
+        case 'file_cancelled':
+          setState(() => _activeTransfers.remove(id));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Transfer cancelled: ${map['name'] ?? ''}')),
+            );
+          }
+        case 'file_error':
+          final msg = map['msg'] as String? ?? 'unknown error';
+          setState(() => _activeTransfers.remove(id));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('File transfer error: $msg')),
+            );
+          }
+      }
+    } catch (e) {
+      debugPrint('_handleFileTransferEvent error: $e');
+    }
+  }
+
+  Future<void> _sendFile() async {
+    final result = await FilePicker.platform.pickFiles();
+    if (result == null || result.files.isEmpty) return;
+    final path = result.files.first.path;
+    if (path == null) return;
+    final id = native.sendFile(path);
+    if (id.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to send file')),
+        );
+      }
+      return;
+    }
+    final file = File(path);
+    final int size;
+    try {
+      size = await file.length();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot read file')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _activeTransfers[id] = {
+        'bytes': 0,
+        'total': size,
+        'name': result.files.first.name,
+        'outgoing': true,
+      };
+    });
+  }
+
+  void _showFileRequest(String id, String name, int size) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Incoming File'),
+        content: Text('Receive file "$name" (${_formatSize(size)})?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              native.rejectFileTransfer(id);
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Reject'),
+          ),
+          FilledButton(
+            onPressed: () {
+              native.acceptFileTransfer(id);
+              setState(() {
+                _activeTransfers[id] = {'bytes': 0, 'total': size, 'name': name};
+              });
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Accept'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
   Future<void> _decodeFrame(Uint8List rgba, int w, int h) async {
     final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(rgba, w, h, ui.PixelFormat.rgba8888, (img) {
@@ -175,6 +332,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final img = await completer.future;
     if (!mounted) return;
     setState(() {
+      _frameImage?.dispose();
       _frameImage = img;
       _frameW = w;
       _frameH = h;
@@ -214,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (target.isEmpty || target == _peerId) return;
     final ptr = target.toNativeUtf8();
     native.chronodeskConnect(ptr);
-    calloc.free(ptr);
+    malloc.free(ptr);
   }
 
   void _disconnect() {
@@ -222,9 +380,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _exportLogs() async {
-    final log = native.getLog();
-    if (log.isEmpty) return;
     try {
+      final log = native.getLog();
+      if (log.isEmpty) return;
       final desktop = Platform.environment['USERPROFILE'] != null
           ? '${Platform.environment['USERPROFILE']}\\Desktop'
           : (await getApplicationDocumentsDirectory()).path;
@@ -246,6 +404,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _turnUrlController.text = native.getConfig('turn_url');
     _turnUserController.text = native.getConfig('turn_username');
     _turnPassController.text = native.getConfig('turn_password');
+    _downloadDirController.text = native.getConfig('download_dir');
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -326,6 +485,36 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
               ),
               const SizedBox(height: 24),
+              const Text('Download Directory', style: TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _downloadDirController,
+                      style: const TextStyle(fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'Leave empty for system temp',
+                        filled: true,
+                        fillColor: Colors.grey.shade900,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.folder_open),
+                    onPressed: () async {
+                      final dir = await FilePicker.platform.getDirectoryPath();
+                      if (dir != null) {
+                        _downloadDirController.text = dir;
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
               const Divider(color: Colors.grey),
               const SizedBox(height: 8),
               TextButton.icon(
@@ -336,7 +525,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 4),
               TextButton.icon(
                 onPressed: () {
-                  _exportLogs();
+                  _exportLogs().catchError((_) {});
                 },
                 icon: const Icon(Icons.bug_report, size: 18),
                 label: const Text('Export Crash Logs'),
@@ -355,6 +544,7 @@ class _HomeScreenState extends State<HomeScreen> {
               native.setConfig('turn_url', _turnUrlController.text.trim());
               native.setConfig('turn_username', _turnUserController.text.trim());
               native.setConfig('turn_password', _turnPassController.text.trim());
+              native.setConfig('download_dir', _downloadDirController.text.trim());
               setState(() => _signalingAddr = _addrController.text.trim());
               Navigator.of(ctx).pop();
               ScaffoldMessenger.of(context).showSnackBar(
@@ -639,10 +829,74 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: 200,
+              child: OutlinedButton.icon(
+                onPressed: _sendFile,
+                icon: const Icon(Icons.upload_file),
+                label: const Text('Send File'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.blueGrey.shade300,
+                  side: BorderSide(color: Colors.blueGrey.shade700),
+                  padding: const EdgeInsets.all(14),
+                ),
+              ),
+            ),
+            if (_activeTransfers.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              ..._buildTransferProgress(),
+            ],
           ],
         ],
       ),
     );
+  }
+
+  List<Widget> _buildTransferProgress() {
+    return _activeTransfers.entries.map((e) {
+      final data = e.value;
+      final bytes = data['bytes'] as int? ?? 0;
+      final total = data['total'] as int? ?? 0;
+      final name = data['name'] as String? ?? e.key;
+      final progress = total > 0 ? bytes / total : 0.0;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 13))),
+                SizedBox(width: 8),
+                SizedBox(
+                  height: 24,
+                  child: TextButton.icon(
+                    onPressed: () => native.cancelFileTransfer(e.key),
+                    icon: Icon(Icons.close, size: 14, color: Colors.red.shade300),
+                    label: Text('Cancel', style: TextStyle(fontSize: 11, color: Colors.red.shade300)),
+                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(value: progress, minHeight: 8, backgroundColor: Colors.white12),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text('${(progress * 100).toStringAsFixed(0)}%', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              ],
+            ),
+          ],
+        ),
+      );
+    }).toList();
   }
 
   void _onPointerMove(PointerMoveEvent e) {
@@ -665,11 +919,21 @@ class _HomeScreenState extends State<HomeScreen> {
     return Focus(
       autofocus: true,
       onKeyEvent: (_, event) {
-        if (event is KeyDownEvent || event is KeyRepeatEvent) {
-          native.chronodeskSendInputKey(event.logicalKey.keyId, true);
+        final isDown = event is KeyDownEvent || event is KeyRepeatEvent;
+        final isUp = event is KeyUpEvent;
+        final logical = event.logicalKey;
+
+        if (isDown && logical == LogicalKeyboardKey.escape) {
+          setState(() => _captureKeyboard = !_captureKeyboard);
           return KeyEventResult.handled;
-        } else if (event is KeyUpEvent) {
-          native.chronodeskSendInputKey(event.logicalKey.keyId, false);
+        }
+        if (isDown && (_captureKeyboard && (logical == LogicalKeyboardKey.tab ||
+            logical == LogicalKeyboardKey.altLeft || logical == LogicalKeyboardKey.altRight ||
+            logical == LogicalKeyboardKey.metaLeft || logical == LogicalKeyboardKey.metaRight))) {
+          return KeyEventResult.ignored;
+        }
+        if (_captureKeyboard && (isDown || isUp)) {
+          native.chronodeskSendInputKey(logical.keyId, isDown);
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -711,6 +975,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     onPressed: () => setState(() => _audioMuted = !_audioMuted),
                     tooltip: _audioMuted ? 'Unmute audio' : 'Mute audio',
                   ),
+                  if (_connected && !_isHost)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: (_captureKeyboard ? Colors.green : Colors.red).withAlpha(51),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: _captureKeyboard ? Colors.green : Colors.red, width: 0.5),
+                      ),
+                      child: Text(_captureKeyboard ? 'KBD' : 'KBD OFF', style: TextStyle(fontSize: 10, color: _captureKeyboard ? Colors.green : Colors.red)),
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.upload_file, color: Colors.white70, size: 20),
+                    onPressed: _sendFile,
+                    tooltip: 'Send file',
+                  ),
                   IconButton(
                     icon: Icon(Icons.close, color: Colors.red.shade300),
                     onPressed: _disconnect,
@@ -720,6 +999,17 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
+          if (_activeTransfers.isNotEmpty)
+            Container(
+              color: const Color(0xFF0F0F1A),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _buildTransferProgress(),
+              ),
+            ),
           Expanded(
             child: InteractiveViewer(
               child: Center(

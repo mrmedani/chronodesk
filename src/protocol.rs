@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ChannelMessage {
+    Handshake {
+        public_key: Vec<u8>,
+    },
+    Encrypted {
+        data: Vec<u8>,
+    },
     VideoFrame {
         width: u32,
         height: u32,
@@ -33,5 +39,28 @@ pub enum ChannelMessage {
     },
     Pong {
         timestamp: i64,
+    },
+    FileTransferRequest {
+        id: String,
+        name: String,
+        size: u64,
+    },
+    FileTransferAccept {
+        id: String,
+    },
+    FileTransferReject {
+        id: String,
+    },
+    FileTransferChunk {
+        id: String,
+        offset: u64,
+        data: Vec<u8>,
+    },
+    FileTransferComplete {
+        id: String,
+    },
+    FileTransferError {
+        id: String,
+        message: String,
     },
 }

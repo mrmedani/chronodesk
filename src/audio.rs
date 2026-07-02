@@ -152,7 +152,7 @@ impl AudioPlayer {
                     cpal::SampleFormat::F32 => device.build_output_stream(
                         &config.into(),
                         move |data: &mut [f32], _| {
-                            let mut b = buf.lock().unwrap();
+                            let mut b = buf.lock().unwrap_or_else(|e| e.into_inner());
                             for sample in data.iter_mut() {
                                 *sample = b.pop_front().unwrap_or(0.0);
                             }
@@ -163,7 +163,7 @@ impl AudioPlayer {
                     _ => device.build_output_stream(
                         &config.into(),
                         move |data: &mut [f32], _| {
-                            let mut b = buf.lock().unwrap();
+                            let mut b = buf.lock().unwrap_or_else(|e| e.into_inner());
                             for sample in data.iter_mut() {
                                 *sample = b.pop_front().unwrap_or(0.0);
                             }
@@ -193,7 +193,7 @@ impl AudioPlayer {
                     }
                     match audio_rx.try_recv() {
                         Ok(samples) => {
-                            let mut b = buffer.lock().unwrap();
+                            let mut b = buffer.lock().unwrap_or_else(|e| e.into_inner());
                             b.extend(samples);
                         }
                         Err(std_mpsc::TryRecvError::Disconnected) => break,
@@ -255,7 +255,11 @@ pub fn resample_to_48k_stereo(input: &[f32], input_rate: u32, input_channels: u1
         return input.to_vec();
     }
 
+    let input_channels = input_channels.max(1);
     let frame_count = input.len() / input_channels as usize;
+    if frame_count == 0 {
+        return Vec::new();
+    }
     let target_len = (frame_count as u64 * SAMPLE_RATE as u64 / input_rate as u64) as usize;
     let mut output = vec![0.0f32; target_len * CHANNELS];
 

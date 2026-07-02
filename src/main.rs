@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chronodesk::capture::ScreenCapture;
+use chronodesk::crypto;
 use chronodesk::input::{logical_key_to_enigo, InputController};
 use chronodesk::network::signaling::SignalEvent;
 use chronodesk::network::signaling::SignalingClient;
@@ -79,6 +80,8 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
     let mut capture = ScreenCapture::new()?;
     let mut encoder = VideoEncoder::new(EncoderType::Auto, 1920, 1080)?;
     let mut connected = false;
+    let mut local_private_key: Option<ring::agreement::EphemeralPrivateKey> = None;
+    let mut crypto_session: Option<crypto::CryptoSession> = None;
 
     loop {
         tokio::select! {
@@ -91,13 +94,21 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
                     TransportEvent::Connected { .. } => {
                         tracing::info!("P2P connected - streaming screen");
                         connected = true;
+                        match crypto::generate_keypair() {
+                            Ok((priv_key, pub_key)) => {
+                                local_private_key = Some(priv_key);
+                                let _ = transport.send_message(&ChannelMessage::Handshake { public_key: pub_key }).await;
+                                tracing::info!("sent crypto handshake");
+                            }
+                            Err(e) => tracing::error!("keypair generation failed: {e}"),
+                        }
                     }
                     TransportEvent::Disconnected { .. } => {
                         tracing::info!("Disconnected");
                         break;
                     }
                     TransportEvent::MessageReceived { msg } => {
-                        handle_host_message(msg).await?;
+                        handle_host_message_crypto(msg, &mut local_private_key, &mut crypto_session, &transport).await?;
                     }
                     TransportEvent::Error { msg } => {
                         tracing::error!("Transport error: {msg}");
@@ -122,7 +133,15 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
                                     codec: if pkt.codec == "jpeg" { 0 } else { 1 },
                                     data: pkt.data.clone(),
                                 };
-                                let _ = transport.send_message(&msg).await;
+                                if let Some(ref session) = crypto_session {
+                                    if let Ok(data) = bincode::serialize(&msg) {
+                                        if let Ok(encrypted) = session.encrypt(&data) {
+                                            let _ = transport.send_message(&ChannelMessage::Encrypted { data: encrypted }).await;
+                                        }
+                                    }
+                                } else {
+                                    let _ = transport.send_message(&msg).await;
+                                }
                             }
                         }
                         Err(e) => tracing::warn!("Encode error: {e}"),
@@ -168,6 +187,8 @@ async fn run_client(
         transport.connect_to(&target).await?;
     }
 
+    let mut crypto_session: Option<crypto::CryptoSession> = None;
+
     loop {
         tokio::select! {
             Some(event) = signal_events.recv() => {
@@ -184,7 +205,7 @@ async fn run_client(
                         break;
                     }
                     TransportEvent::MessageReceived { msg } => {
-                        handle_client_message(msg);
+                        handle_client_message_crypto(msg, &mut crypto_session, &transport).await;
                     }
                     TransportEvent::Error { msg } => {
                         tracing::error!("Transport error: {msg}");
@@ -196,6 +217,59 @@ async fn run_client(
     }
 
     Ok(())
+}
+
+async fn handle_client_message_crypto(
+    msg: ChannelMessage,
+    crypto_session: &mut Option<crypto::CryptoSession>,
+    transport: &Transport,
+) {
+    if let ChannelMessage::Handshake { public_key } = &msg {
+        match crypto::generate_keypair() {
+            Ok((priv_key, my_pub_key)) => {
+                match crypto::compute_shared_secret(priv_key, public_key) {
+                    Ok(shared) => {
+                        match crypto::derive_session_key(&shared) {
+                            Ok(key) => {
+                                match crypto::CryptoSession::new(&key) {
+                                    Ok(session) => {
+                                        tracing::info!("crypto handshake complete (client)");
+                                        *crypto_session = Some(session);
+                                        let resp = ChannelMessage::Handshake { public_key: my_pub_key };
+                                        let _ = transport.send_message(&resp).await;
+                                    }
+                                    Err(e) => tracing::error!("crypto session init failed: {e}"),
+                                }
+                            }
+                            Err(e) => tracing::error!("crypto key derivation failed: {e}"),
+                        }
+                    }
+                    Err(e) => tracing::error!("crypto shared secret failed: {e}"),
+                }
+            }
+            Err(e) => tracing::error!("crypto viewer keypair failed: {e}"),
+        }
+        return;
+    }
+
+    let inner = match msg {
+        ChannelMessage::Encrypted { data } => {
+            if let Some(ref session) = crypto_session {
+                match session.decrypt(&data) {
+                    Ok(plaintext) => match bincode::deserialize::<ChannelMessage>(&plaintext) {
+                        Ok(decoded) => decoded,
+                        Err(_) => return,
+                    },
+                    Err(_) => return,
+                }
+            } else {
+                return;
+            }
+        }
+        other => other,
+    };
+
+    handle_client_message(inner);
 }
 
 async fn run_server(_bind: &str) -> Result<()> {
@@ -213,6 +287,48 @@ fn trace_signal_event(event: &SignalEvent) {
         SignalEvent::PeerList(peers) => tracing::info!("Peers online: {:?}", peers),
         SignalEvent::Error(msg) => tracing::error!("Signal error: {msg}"),
     }
+}
+
+async fn handle_host_message_crypto(
+    msg: ChannelMessage,
+    local_private_key: &mut Option<ring::agreement::EphemeralPrivateKey>,
+    crypto_session: &mut Option<crypto::CryptoSession>,
+    _transport: &Transport,
+) -> Result<()> {
+    if let ChannelMessage::Handshake { public_key } = &msg {
+        if let Some(priv_key) = local_private_key.take() {
+            if let Ok(shared) = crypto::compute_shared_secret(priv_key, public_key) {
+                if let Ok(key) = crypto::derive_session_key(&shared) {
+                    if let Ok(session) = crypto::CryptoSession::new(&key) {
+                        tracing::info!("crypto handshake complete (host)");
+                        *crypto_session = Some(session);
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    let inner = match msg {
+        ChannelMessage::Encrypted { data } => {
+            if let Some(ref session) = crypto_session {
+                if let Ok(plaintext) = session.decrypt(&data) {
+                    if let Ok(decoded) = bincode::deserialize::<ChannelMessage>(&plaintext) {
+                        decoded
+                    } else {
+                        return Ok(());
+                    }
+                } else {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+        }
+        other => other,
+    };
+
+    handle_host_message(inner).await
 }
 
 async fn handle_host_message(msg: ChannelMessage) -> Result<()> {

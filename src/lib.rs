@@ -1,7 +1,8 @@
 pub mod audio;
 pub mod capture;
 pub mod clipboard;
-pub mod ffi;
+pub mod crypto;
+pub mod file_transfer;
 pub mod input;
 pub mod logger;
 pub mod network;

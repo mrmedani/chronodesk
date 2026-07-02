@@ -138,7 +138,7 @@ impl VideoEncoder {
 
 fn rgba_to_rgb(bgra: &[u8]) -> Vec<u8> {
     let mut rgb = Vec::with_capacity(bgra.len() / 4 * 3);
-    for pixel in bgra.chunks(4) {
+    for pixel in bgra.chunks_exact(4) {
         rgb.push(pixel[2]);
         rgb.push(pixel[1]);
         rgb.push(pixel[0]);

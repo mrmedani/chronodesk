@@ -43,6 +43,7 @@ pub(crate) enum SignalCommand {
     HandleOffer(String, String),
     HandleAnswer(String, String),
     HandleIceCandidate(String, String, String, u16),
+    #[allow(dead_code)]
     SendMessage(ChannelMessage),
     Disconnect,
 }
@@ -260,6 +261,7 @@ impl Transport {
         Ok((transport, event_rx))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn signal_tx(&self) -> mpsc::UnboundedSender<SignalCommand> {
         self.signal_tx.clone()
     }
