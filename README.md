@@ -30,7 +30,7 @@
 | :art: Flutter UI | Done | Single-screen AnyDesk-like UX — peer ID, connect field, remote view, accept/deny dialog |
 | :link: Rust ↔ Flutter bridge | Done | Raw C FFI with event polling, frame buffer, accept/deny flow |
 | :id: ID system | Done | Persistent 9-digit peer ID stored in `%APPDATA%/chronodesk` |
-| :locked: Encryption | Done | ECDH (X25519) key exchange + AES-256-GCM session encryption |
+| :locked: Encryption | Done | ECDH (X25519) key exchange + ChaCha20-Poly1305 session encryption |
 | :clipboard: Clipboard sync | Done | Bidirectional clipboard text sync over data channel |
 | :memo: File transfer | Done | Chunked streaming with progress, accept/reject/cancel, download directory |
 | :headphone: Remote audio | Done | Cross-platform audio capture (CPAL) + Opus/raw PCM streaming |
@@ -175,7 +175,7 @@ chronodesk/
 │   ├── audio.rs                  # Audio capture (CPAL) + Opus/raw PCM
 │   ├── capture.rs                # Screen capture (xcap DXGI)
 │   ├── clipboard.rs              # Clipboard sync
-│   ├── crypto.rs                 # ECDH key exchange + AES-256-GCM
+│   ├── crypto.rs                 # ECDH key exchange + ChaCha20-Poly1305
 │   ├── file_transfer.rs          # Chunked file transfer streaming
 │   ├── input.rs                  # Input injection (enigo)
 │   ├── logger.rs                 # Logging + panic hook
@@ -213,7 +213,7 @@ chronodesk/
 | Screen capture | **xcap** — DXGI (Windows), CoreGraphics (macOS), X11/PipeWire (Linux) |
 | Video encoding | **FFmpeg** (NVENC/QSV/AMF), **libwebp**, or **libjpeg** fallback |
 | Input injection | **enigo** — cross-platform input simulation |
-| Encryption | **ring** + **aes-gcm** — ECDH (X25519) key exchange + AES-256-GCM session |
+| Encryption | **ring** — ECDH (X25519) key exchange + ChaCha20-Poly1305 AEAD |
 | Audio | **CPAL** — cross-platform audio capture & playback |
 | UI | **Flutter** — Material Design 3, native performance |
 | Bridge | **Raw C FFI** — event polling, RGBA frame buffer, JSON event queue |
@@ -227,7 +227,7 @@ chronodesk/
 - [x] Input injection
 - [x] Flutter UI with remote screen viewer
 - [x] Rust ↔ Flutter FFI bridge with event system
-- [x] End-to-end encryption (ECDH + AES-256-GCM)
+- [x] End-to-end encryption (ECDH + ChaCha20-Poly1305)
 - [x] File transfer over data channel
 - [x] Audio streaming (capture + playback)
 - [x] Clipboard sync

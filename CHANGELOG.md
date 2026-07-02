@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- :locked: **End-to-end encryption** — ECDH (X25519) key exchange at connection start, AES-256-GCM session encryption for all subsequent messages
+- :locked: **End-to-end encryption** — ECDH (X25519) key exchange at connection start, ChaCha20-Poly1305 session encryption for all subsequent messages
 - :memo: **File transfer** — Chunked streaming over data channel with progress tracking, accept/reject/cancel, and download directory management
 - :headphone: **Audio streaming** — Cross-platform audio capture (CPAL) with Opus/raw PCM encoding, real-time playback on viewer side
 - :clipboard: **Clipboard sync** — Bidirectional clipboard text synchronization between host and viewer
@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- :recycle: **Crypto** — New `src/crypto.rs` module: key generation, shared secret computation, AES-GCM session encrypt/decrypt
+- :recycle: **Crypto** — New `src/crypto.rs` module: key generation, shared secret computation, ChaCha20-Poly1305 session encrypt/decrypt
 - :recycle: **File transfer** — New `src/file_transfer.rs` module with `sanitize_filename()` for path traversal protection
 - :recycle: **Audio** — New `src/audio.rs` module with `AudioCapture` (CPAL) + `AudioPlayer` + resampling
 - :recycle: **Protocol** — `ChannelMessage` enum extended with `Handshake`, `Encrypted`, `FileTransfer*`, `AudioData`, `Clipboard` variants
