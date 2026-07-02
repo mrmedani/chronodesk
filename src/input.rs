@@ -9,11 +9,15 @@ pub struct InputController {
     enigo: Enigo,
 }
 
-fn logical_key_to_enigo_insert() -> Key {
+fn logical_key_to_enigo_insert() -> Option<Key> {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    { Key::Insert }
+    {
+        Some(Key::Insert)
+    }
     #[cfg(target_os = "macos")]
-    { Key::Clear }
+    {
+        None
+    }
 }
 
 pub fn logical_key_to_enigo(key_id: u64) -> Option<Key> {
@@ -40,7 +44,7 @@ pub fn logical_key_to_enigo(key_id: u64) -> Option<Key> {
         0x100000043 => Some(Key::F10),
         0x100000044 => Some(Key::F11),
         0x100000045 => Some(Key::F12),
-        0x100000049 => Some(logical_key_to_enigo_insert()),
+        0x100000049 => logical_key_to_enigo_insert(),
         0x10000004A => Some(Key::Home),
         0x10000004B => Some(Key::PageUp),
         0x10000004D => Some(Key::End),
