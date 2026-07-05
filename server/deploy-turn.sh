@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-SERVER_IP="${1:-144.24.201.196}"
-TURN_USER="${2:-chronodesk}"
-TURN_PASS="${3:-change-me-plz}"
+SERVER_IP="${1:?Usage: $0 <server_ip> <turn_user> <turn_pass>}"
+TURN_USER="${2:?Usage: $0 <server_ip> <turn_user> <turn_pass>}"
+TURN_PASS="${3:?Usage: $0 <server_ip> <turn_user> <turn_pass>}"
 
 echo "==> Deploying CHRONODESK TURN server to $SERVER_IP"
 
@@ -15,7 +15,7 @@ cd /root/chronodesk-turn
 
 # Replace placeholders
 sed -i "s/<YOUR_SERVER_IP>/$SERVER_IP/g" turnserver.conf
-sed -i "s/chronodesk:change-me-plz/$TURN_USER:$TURN_PASS/g" turnserver.conf
+sed -i "s/<TURN_USER>:<TURN_PASS>/$TURN_USER:$TURN_PASS/g" turnserver.conf
 
 # Install docker if needed
 if ! command -v docker &>/dev/null; then

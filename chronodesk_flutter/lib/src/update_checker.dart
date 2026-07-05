@@ -151,15 +151,29 @@ Future<void> _verifyChecksum(String installerPath) async {
   final client = http.Client();
   try {
     final resp = await client.get(checksumUri).timeout(const Duration(seconds: 10));
-    if (resp.statusCode != 200) return;
+    if (resp.statusCode != 200) {
+      File(installerPath).delete();
+      throw Exception(
+          'Checksum file not found (HTTP ${resp.statusCode}). Cannot verify installer integrity.');
+    }
 
     final lines = resp.body.trim().split('\n');
-    if (lines.isEmpty) return;
+    if (lines.isEmpty || lines.first.trim().isEmpty) {
+      File(installerPath).delete();
+      throw Exception('Checksum file is empty. Cannot verify installer integrity.');
+    }
+
     final expectedHash = lines.first.trim().split(' ').first;
-    if (expectedHash.isEmpty || expectedHash.length != 64) return;
+    if (expectedHash.length != 64 || !RegExp(r'^[a-f0-9]{64}$').hasMatch(expectedHash)) {
+      File(installerPath).delete();
+      throw Exception('Invalid checksum format in release asset.');
+    }
 
     final result = await Process.run('certutil', ['-hashfile', installerPath, 'SHA256']);
-    if (result.exitCode != 0) return;
+    if (result.exitCode != 0) {
+      File(installerPath).delete();
+      throw Exception('Failed to compute local SHA256 hash (certutil exited ${result.exitCode}).');
+    }
     final output = result.stdout.toString().trim();
     final actualHash = output.split('\n').skip(1).first.trim().replaceAll(' ', '');
 

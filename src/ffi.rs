@@ -578,7 +578,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                                         } else {
                                             let _ = transport.send_message(&chunk).await;
                                         }
-                                        if idx % 16 == 0 || outgoing.offset >= total {
+                                        if idx.is_multiple_of(16) || outgoing.offset >= total {
                                             push_event_obj(&serde_json::json!({"type":"file_progress","id":id,"bytes_sent":outgoing.offset.min(total),"total_size":total}));
                                         }
                                         idx += 1;
@@ -636,8 +636,10 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                                                 push_event_obj(&serde_json::json!({"type":"file_complete","id":id,"name":t.name,"size":t.total_size,"path":final_path.to_string_lossy()}));
                                             }
                                         } else {
+                                            let bytes_received = t.bytes_received;
+                                            let total_size = t.total_size;
                                             drop(s);
-                                            push_event_obj(&serde_json::json!({"type":"file_progress","id":id,"bytes_received":t.bytes_received,"total_size":t.total_size}));
+                                            push_event_obj(&serde_json::json!({"type":"file_progress","id":id,"bytes_received":bytes_received,"total_size":total_size}));
                                         }
                                     }
                                 }
@@ -657,8 +659,15 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                                 lock_state().file_transfer_manager.outgoing.remove(&id);
                                 push_event_obj(&serde_json::json!({"type":"file_error","id":id,"msg":message}));
                             }
+                            _ => {}
                         }
                     }
+                    TransportEvent::Error { msg } => {
+                        logger::write_log(&format!("Transport error: {msg}"));
+                        push_event_obj(&serde_json::json!({"type":"error","msg":msg}));
+                    }
+                }
+            }
             Some(audio_samples) = async {
                 if let Some(ref mut rx) = audio_rx.as_mut() {
                     rx.recv().await
