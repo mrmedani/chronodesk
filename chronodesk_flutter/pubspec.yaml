@@ -1,7 +1,7 @@
 name: chronodesk_flutter
 description: CHRONODESK remote desktop client
 publish_to: 'none'
-version: 0.4.0
+version: 0.4.1
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
