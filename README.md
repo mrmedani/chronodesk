@@ -8,7 +8,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPLv3-blue.svg" alt="License" /></a>
     <a href="https://github.com/mrmedani/chronodesk/issues"><img src="https://img.shields.io/github/issues/mrmedani/chronodesk?logo=github" alt="Issues" /></a>
     <br/>
-    <a href="https://github.com/mrmedani/chronodesk/releases/latest/download/chronodesk-windows-setup.exe"><img src="https://img.shields.io/badge/Download%20Installer-Windows-blue?logo=windows&style=for-the-badge" alt="Download Windows Installer" /></a>
+    <a href="https://github.com/mrmedani/chronodesk/releases/latest/download/chronodesk-windows-setup.exe"><img src="https://img.shields.io/badge/Download%20Installer%20v0.4.1-Windows-blue?logo=windows&style=for-the-badge" alt="Download Windows Installer" /></a>
     <br/>
     <img src="https://img.shields.io/badge/Rust-1.83%2B-orange?logo=rust" alt="Rust" />
     <img src="https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter" alt="Flutter" />
@@ -35,6 +35,20 @@
 | :memo: File transfer | Done | Chunked streaming with progress, accept/reject/cancel, download directory |
 | :headphone: Remote audio | Done | Cross-platform audio capture (CPAL) + Opus/raw PCM streaming |
 | :bar_chart: Adaptive quality | Done | Dynamic FPS/resolution based on RTT and packet loss |
+| :closed_lock_with_key: Signaling auth | Done | HMAC-SHA256 peer authentication prevents ID spoofing |
+| :white_check_mark: Secure updates | Done | SHA256 checksum verification enforced before install |
+
+---
+
+## Changelog (v0.4.1)
+
+- **Signaling auth**: HMAC-SHA256 peer authentication — prevents ID spoofing on the signaling server
+- **Secure updates**: SHA256 checksum now mandatory before installer launch
+- **Dynamic video resolution**: encoder adapts to actual capture frame size (no more garbled remote view)
+- **H.264 disabled by default**: all encoders fall back to WebP until viewer-side H.264 decode is stable
+- **TURN credentials no longer hardcoded**: deploy script requires explicit `--auth-secret` arg
+- **FFI module fix**: `pub mod ffi` was missing from `lib.rs` — DLL now correctly exports all C symbols
+- **Rust compilation fixes**: unclosed delimiter, non-exhaustive match arms, borrow checker regression
 
 ---
 
@@ -101,10 +115,14 @@
 ### 1. Start the Signaling Server
 
 ```bash
+# Without authentication (local/testing)
 cargo run --bin signaling-server
+
+# With authentication (production)
+cargo run --bin signaling-server -- --auth-secret "your-secure-secret-key"
 ```
 
-The server listens at `ws://<host>:21116/ws`.
+The server listens at `ws://<host>:21116/ws`. Clients authenticate using `HMAC-SHA256(auth_secret, peer_id)`.
 
 ### 2. Build & Run the Flutter App
 
@@ -160,6 +178,13 @@ cargo build --bin signaling-server
 
 # CLI engine (legacy host/client modes)
 cargo build
+```
+
+### Deploy TURN Server
+
+```bash
+# All three arguments are required (no defaults)
+bash server/deploy-turn.sh <server-ip> <turn-username> <turn-password>
 ```
 
 ---
@@ -232,7 +257,10 @@ chronodesk/
 - [x] Audio streaming (capture + playback)
 - [x] Clipboard sync
 - [x] TURN server for restrictive NATs
-- [ ] Adaptive quality (RTT-based)
+- [x] Adaptive quality (RTT-based)
+- [x] Signaling auth (HMAC-SHA256 peer authentication)
+- [x] Secure auto-update (SHA256 checksum verification)
+- [x] Dynamic resolution alignment (capture ↔ encoder)
 - [ ] Headless mode for servers
 - [ ] Mobile clients (iOS/Android)
 - [ ] Wake-on-LAN
