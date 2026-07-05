@@ -83,7 +83,11 @@ pub struct SignalingClient {
 }
 
 impl SignalingClient {
-    pub fn new(server_url: &str, peer_id: &str, auth_token: &str) -> (Self, mpsc::UnboundedReceiver<SignalEvent>) {
+    pub fn new(
+        server_url: &str,
+        peer_id: &str,
+        auth_token: &str,
+    ) -> (Self, mpsc::UnboundedReceiver<SignalEvent>) {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         (

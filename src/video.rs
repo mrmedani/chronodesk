@@ -61,14 +61,23 @@ impl VideoEncoder {
         })
     }
 
-    pub fn encode(&mut self, bgra_data: &[u8], width: u32, height: u32) -> Result<Vec<EncodedPacket>> {
+    pub fn encode(
+        &mut self,
+        bgra_data: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<EncodedPacket>> {
         self.frame_count += 1;
         // Keep internal resolution aligned with actual frame dimensions
         self.width = width;
         self.height = height;
         match self.encoder_type {
-            EncoderType::Vp8 | EncoderType::Software | EncoderType::Auto
-            | EncoderType::Nvenc | EncoderType::QuickSync | EncoderType::Amf => {
+            EncoderType::Vp8
+            | EncoderType::Software
+            | EncoderType::Auto
+            | EncoderType::Nvenc
+            | EncoderType::QuickSync
+            | EncoderType::Amf => {
                 // All hardware encoders map to WebP until H.264 viewer support is added
                 encode_webp(bgra_data, width, height, self.frame_count, self.quality)
             }

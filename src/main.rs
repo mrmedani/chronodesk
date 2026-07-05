@@ -131,7 +131,13 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
                                 let msg = ChannelMessage::VideoFrame {
                                     width: frame.width as u32,
                                     height: frame.height as u32,
-                                    codec: if pkt.codec == "webp" { 2 } else if pkt.codec == "jpeg" { 0 } else { 1 },
+                                    codec: if pkt.codec == "webp" {
+                                        2
+                                    } else if pkt.codec == "jpeg" {
+                                        0
+                                    } else {
+                                        1
+                                    },
                                     data: pkt.data.clone(),
                                 };
                                 if let Some(ref session) = crypto_session {

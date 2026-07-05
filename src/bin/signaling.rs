@@ -74,7 +74,10 @@ async fn main() -> Result<()> {
 }
 
 fn hex_decode(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).filter_map(|i| u8::from_str_radix(&s[i..(i + 2).min(s.len())], 16).ok()).collect()
+    (0..s.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(&s[i..(i + 2).min(s.len())], 16).ok())
+        .collect()
 }
 
 fn verify_auth(auth_key: &Option<hmac::Key>, peer_id: &str, auth_token: &str) -> bool {
@@ -125,7 +128,10 @@ async fn handle_connection(
         };
 
         match signal {
-            SignalMessage::Register { peer_id: id, auth_token } => {
+            SignalMessage::Register {
+                peer_id: id,
+                auth_token,
+            } => {
                 if !verify_auth(&auth_key, &id, &auth_token) {
                     tracing::warn!("Auth failed for peer {id} from {addr}");
                     let _ = tx.send(SignalMessage::Error {

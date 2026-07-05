@@ -220,7 +220,9 @@ pub extern "C" fn chronodesk_init() {
         logger::write_log("run_loop starting");
         if let Err(e) = run_loop(&addr2, &id2).await {
             logger::write_log(&format!("run_loop exited with error: {e}"));
-            push_event_obj(&serde_json::json!({"type":"error","msg":format!("Internal error: {e}")}));
+            push_event_obj(
+                &serde_json::json!({"type":"error","msg":format!("Internal error: {e}")}),
+            );
         } else {
             logger::write_log("run_loop exited cleanly");
         }
@@ -268,7 +270,8 @@ pub extern "C" fn chronodesk_set_config(
 async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error> {
     logger::write_log("run_loop started");
     let auth_token = compute_auth_token(my_id);
-    let (signaling_client, mut signal_events) = SignalingClient::new(signaling_addr, my_id, &auth_token);
+    let (signaling_client, mut signal_events) =
+        SignalingClient::new(signaling_addr, my_id, &auth_token);
     let signaling_tx = signaling_client.channel();
 
     let stun_addr = format!(
@@ -282,7 +285,9 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
             Ok(t) => t,
             Err(e) => {
                 logger::write_log(&format!("Transport init FAILED: {e}"));
-                push_event_obj(&serde_json::json!({"type":"error","msg":format!("Transport init: {e}")}));
+                push_event_obj(
+                    &serde_json::json!({"type":"error","msg":format!("Transport init: {e}")}),
+                );
                 return Ok(());
             }
         };
@@ -1052,7 +1057,10 @@ pub extern "C" fn chronodesk_send_file(path: *const std::ffi::c_char) -> *mut st
                 let _ = tx.send(TrCmd::SendMessage(request));
             }
             drop(s);
-            lock_state().file_transfer_manager.outgoing.insert(id.clone(), outgoing);
+            lock_state()
+                .file_transfer_manager
+                .outgoing
+                .insert(id.clone(), outgoing);
             id
         }
         Err(e) => {
@@ -1176,4 +1184,3 @@ pub extern "C" fn chronodesk_get_version() -> *mut std::ffi::c_char {
         .unwrap_or_default()
         .into_raw()
 }
-
