@@ -1128,3 +1128,10 @@ pub extern "C" fn chronodesk_cancel_file_transfer(id: *const std::ffi::c_char) {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn chronodesk_get_version() -> *mut std::ffi::c_char {
+    CString::new(env!("CARGO_PKG_VERSION"))
+        .unwrap_or_default()
+        .into_raw()
+}
+

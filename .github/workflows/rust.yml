@@ -31,7 +31,9 @@ jobs:
 
       - name: Install system dependencies (ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpipewire-0.3-dev libclang-dev libssl-dev libavcodec-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libswresample-dev libswscale-dev libpostproc-dev libgbm-dev libxdo-dev libasound2-dev libdbus-1-dev
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpipewire-0.3-dev libclang-dev libssl-dev libavcodec-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libswresample-dev libswscale-dev libpostproc-dev libgbm-dev libxdo-dev libasound2-dev libdbus-1-dev
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -64,7 +66,9 @@ jobs:
 
       - name: Install system dependencies (ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpipewire-0.3-dev libclang-dev libssl-dev libavcodec-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libswresample-dev libswscale-dev libpostproc-dev libgbm-dev libxdo-dev libasound2-dev libdbus-1-dev
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpipewire-0.3-dev libclang-dev libssl-dev libavcodec-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libswresample-dev libswscale-dev libpostproc-dev libgbm-dev libxdo-dev libasound2-dev libdbus-1-dev
 
 
       - name: Rust Cache
@@ -104,7 +108,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install system dependencies (ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpipewire-0.3-dev libclang-dev libssl-dev libavcodec-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libswresample-dev libswscale-dev libpostproc-dev libgbm-dev libxdo-dev libasound2-dev libdbus-1-dev
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpipewire-0.3-dev libclang-dev libssl-dev libavcodec-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libswresample-dev libswscale-dev libpostproc-dev libgbm-dev libxdo-dev libasound2-dev libdbus-1-dev
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2

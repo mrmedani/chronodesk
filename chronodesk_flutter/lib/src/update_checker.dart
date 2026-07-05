@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:http/http.dart' as http;
+import '../ffi/native.dart' as native;
 
 const _repo = 'mrmedani/chronodesk';
-const currentVersion = '0.4.0';
+
+String get currentVersion => native.getVersion();
 
 class UpdateInfo {
   final String version;
@@ -97,6 +99,7 @@ Future<void> downloadAndApplyUpdate(
   final uri = Uri.parse(
       'https://github.com/$_repo/releases/latest/download/chronodesk-windows-setup.exe');
   final client = http.Client();
+  _downloadClient = client;
   try {
     final request = http.Request('GET', uri);
     final response =
@@ -137,6 +140,7 @@ Future<void> downloadAndApplyUpdate(
 
     await _runInstaller(installerFile.path);
   } finally {
+    _downloadClient = null;
     client.close();
   }
 }
@@ -169,6 +173,13 @@ Future<void> _verifyChecksum(String installerPath) async {
   } finally {
     client.close();
   }
+}
+
+http.Client? _downloadClient;
+
+void cancelUpdate() {
+  _downloadClient?.close();
+  _downloadClient = null;
 }
 
 String _encodePowerShell(String command) {

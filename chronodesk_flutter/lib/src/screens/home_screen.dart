@@ -687,6 +687,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _performUpdate() {
     if (_isUpdating) return;
     _isUpdating = true;
+    bool cancelled = false;
     final progressState = ValueNotifier<double>(0.0);
     final progressText = ValueNotifier<String>('Downloading...');
     BuildContext? dialogContext;
@@ -716,6 +717,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 8),
                   LinearProgressIndicator(value: progress),
                 ],
+                const SizedBox(height: 16),
+                TextButton.icon(
+                  onPressed: () {
+                    cancelled = true;
+                    cancelUpdate();
+                    if (dialogContext != null && dialogContext!.mounted) {
+                      Navigator.of(dialogContext!).pop();
+                    }
+                  },
+                  icon: const Icon(Icons.cancel, size: 16),
+                  label: const Text('Cancel'),
+                ),
               ],
             ),
           ),
@@ -723,6 +736,7 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
     downloadAndApplyUpdate((received, total) {
+      if (cancelled) return;
       if (total > 0) {
         progressState.value = received / total;
         progressText.value = '${(received / total * 100).toInt()}%';
@@ -732,6 +746,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }).then((_) {
       _isUpdating = false;
     }).catchError((e) {
+      if (cancelled) {
+        _isUpdating = false;
+        return;
+      }
       _isUpdating = false;
       if (mounted) {
         try {

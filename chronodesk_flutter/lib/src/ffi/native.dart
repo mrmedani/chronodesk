@@ -93,6 +93,10 @@ final chronodeskGetLog = _nativeLib.lookupFunction<
     Pointer<Utf8> Function(),
     Pointer<Utf8> Function()>('chronodesk_get_log');
 
+final chronodeskGetVersion = _nativeLib.lookupFunction<
+    Pointer<Utf8> Function(),
+    Pointer<Utf8> Function()>('chronodesk_get_version');
+
 final chronodeskSendInputClick = _nativeLib.lookupFunction<
     Void Function(Uint8, Bool),
     void Function(int, bool)>('chronodesk_send_input_click');
@@ -141,6 +145,11 @@ String? pollEvent() {
 String getLog() {
   final ptr = chronodeskGetLog();
   return _readCString(ptr) ?? '';
+}
+
+String getVersion() {
+  final ptr = chronodeskGetVersion();
+  return _readCString(ptr) ?? '0.0.0';
 }
 
 bool getFrame(Pointer<Pointer<Uint8>> data, Pointer<Int32> len,
