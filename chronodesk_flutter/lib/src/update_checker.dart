@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:http/http.dart' as http;
-import '../ffi/native.dart' as native;
+import 'ffi/native.dart' as native;
 
 const _repo = 'mrmedani/chronodesk';
 
