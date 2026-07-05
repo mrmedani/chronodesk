@@ -4,6 +4,7 @@ use crate::network::signaling::{SignalCommand as SigCmd, SignalEvent, SignalingC
 use crate::network::transport::{SignalCommand as TrCmd, Transport, TransportEvent};
 use crate::protocol::ChannelMessage;
 use crate::video::{EncoderType, QualityController, VideoEncoder};
+use ring::hmac;
 use std::ffi::{CStr, CString};
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -65,14 +66,20 @@ fn push_event_obj(value: &serde_json::Value) {
     lock_state().events.push(value.to_string());
 }
 
-fn load_or_create_id() -> String {
+fn config_dir() -> std::path::PathBuf {
     let path = if cfg!(target_os = "windows") {
         std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string()) + "\\chronodesk"
     } else {
         std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/.chronodesk"
     };
-    let _ = std::fs::create_dir_all(&path);
-    let id_file = std::path::Path::new(&path).join("id");
+    let dir = std::path::PathBuf::from(&path);
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+fn load_or_create_id() -> String {
+    let dir = config_dir();
+    let id_file = dir.join("id");
     if let Ok(id) = std::fs::read_to_string(&id_file) {
         let id = id.trim().to_string();
         if id.len() >= 4 {
@@ -87,6 +94,31 @@ fn load_or_create_id() -> String {
     let id = format!("{:09}", nanos % 1_000_000_000);
     let _ = std::fs::write(&id_file, &id);
     id
+}
+
+fn get_or_create_auth_secret() -> String {
+    let dir = config_dir();
+    let secret_file = dir.join("auth_secret");
+    if let Ok(s) = std::fs::read_to_string(&secret_file) {
+        let s = s.trim().to_string();
+        if s.len() >= 16 {
+            return s;
+        }
+    }
+    use ring::rand::SecureRandom;
+    let rng = ring::rand::SystemRandom::new();
+    let mut bytes = vec![0u8; 32];
+    let _ = rng.fill(&mut bytes);
+    let secret: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    let _ = std::fs::write(&secret_file, &secret);
+    secret
+}
+
+pub fn compute_auth_token(peer_id: &str) -> String {
+    let secret = get_or_create_auth_secret();
+    let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
+    let tag = hmac::sign(&key, peer_id.as_bytes());
+    tag.as_ref().iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 fn jpeg_to_rgba(jpeg: &[u8], _w: usize, _h: usize) -> Vec<u8> {
@@ -235,7 +267,8 @@ pub extern "C" fn chronodesk_set_config(
 
 async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error> {
     logger::write_log("run_loop started");
-    let (signaling_client, mut signal_events) = SignalingClient::new(signaling_addr, my_id);
+    let auth_token = compute_auth_token(my_id);
+    let (signaling_client, mut signal_events) = SignalingClient::new(signaling_addr, my_id, &auth_token);
     let signaling_tx = signaling_client.channel();
 
     let stun_addr = format!(
@@ -755,7 +788,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
                         if let Ok(frames) = cap.capture_all() {
                             for frame in &frames {
                                 if frame.dirty_rects.is_empty() { continue; }
-                                if let Ok(packets) = enc.encode(&frame.data) {
+                                if let Ok(packets) = enc.encode(&frame.data, frame.width as u32, frame.height as u32) {
                                     for pkt in &packets {
                                         quality_ctrl.record_frame_size(pkt.data.len());
                                         let codec_id = match pkt.codec {

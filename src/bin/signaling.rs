@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
+use ring::hmac;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -13,12 +14,16 @@ use tokio_tungstenite::tungstenite::Message;
 struct Args {
     #[arg(short, long, default_value = "0.0.0.0:21116")]
     bind: String,
+
+    #[arg(short = 's', long = "auth-secret")]
+    auth_secret: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 enum SignalMessage {
     Register {
         peer_id: String,
+        auth_token: String,
     },
     Offer {
         from: String,
@@ -53,21 +58,36 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let peers: PeerMap = Arc::new(DashMap::new());
+    let auth_key: Option<hmac::Key> = args
+        .auth_secret
+        .map(|s| hmac::Key::new(hmac::HMAC_SHA256, s.as_bytes()));
     let listener = TcpListener::bind(&args.bind).await?;
     tracing::info!("Signaling server listening on {}", args.bind);
 
     while let Ok((stream, addr)) = listener.accept().await {
         let peers = peers.clone();
-        tokio::spawn(handle_connection(stream, addr, peers));
+        let auth_key = auth_key.clone();
+        tokio::spawn(handle_connection(stream, addr, peers, auth_key));
     }
 
     Ok(())
+}
+
+fn hex_decode(s: &str) -> Vec<u8> {
+    (0..s.len()).step_by(2).filter_map(|i| u8::from_str_radix(&s[i..(i + 2).min(s.len())], 16).ok()).collect()
+}
+
+fn verify_auth(auth_key: &Option<hmac::Key>, peer_id: &str, auth_token: &str) -> bool {
+    let Some(key) = auth_key else { return true };
+    let decoded = hex_decode(auth_token);
+    hmac::verify(key, peer_id.as_bytes(), &decoded).is_ok()
 }
 
 async fn handle_connection(
     stream: tokio::net::TcpStream,
     addr: std::net::SocketAddr,
     peers: PeerMap,
+    auth_key: Option<hmac::Key>,
 ) {
     let ws = match accept_async(stream).await {
         Ok(ws) => ws,
@@ -105,7 +125,14 @@ async fn handle_connection(
         };
 
         match signal {
-            SignalMessage::Register { peer_id: id } => {
+            SignalMessage::Register { peer_id: id, auth_token } => {
+                if !verify_auth(&auth_key, &id, &auth_token) {
+                    tracing::warn!("Auth failed for peer {id} from {addr}");
+                    let _ = tx.send(SignalMessage::Error {
+                        msg: "Authentication failed: invalid auth_token".to_string(),
+                    });
+                    break;
+                }
                 peers.insert(id.clone(), tx.clone());
                 peer_id = Some(id.clone());
                 tracing::info!("Peer registered: {id} from {addr}");

@@ -9,6 +9,7 @@ use tokio_tungstenite::tungstenite::Message;
 pub enum SignalMessage {
     Register {
         peer_id: String,
+        auth_token: String,
     },
     Offer {
         from: String,
@@ -75,19 +76,21 @@ pub enum SignalCommand {
 pub struct SignalingClient {
     server_url: String,
     peer_id: String,
+    auth_token: String,
     cmd_tx: mpsc::UnboundedSender<SignalCommand>,
     event_tx: mpsc::UnboundedSender<SignalEvent>,
     cmd_rx: mpsc::UnboundedReceiver<SignalCommand>,
 }
 
 impl SignalingClient {
-    pub fn new(server_url: &str, peer_id: &str) -> (Self, mpsc::UnboundedReceiver<SignalEvent>) {
+    pub fn new(server_url: &str, peer_id: &str, auth_token: &str) -> (Self, mpsc::UnboundedReceiver<SignalEvent>) {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         (
             Self {
                 server_url: server_url.to_string(),
                 peer_id: peer_id.to_string(),
+                auth_token: auth_token.to_string(),
                 cmd_tx,
                 event_tx,
                 cmd_rx,
@@ -107,6 +110,7 @@ impl SignalingClient {
 
         let register = SignalMessage::Register {
             peer_id: self.peer_id.clone(),
+            auth_token: self.auth_token.clone(),
         };
         write
             .send(Message::Text(serde_json::to_string(&register)?))

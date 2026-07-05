@@ -61,7 +61,8 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
 
     tracing::info!("CHRONODESK host starting as: {my_id}");
 
-    let (signaling, mut signal_events) = SignalingClient::new(signaling_addr, &my_id);
+    let auth_token = chronodesk::ffi::compute_auth_token(&my_id);
+    let (signaling, mut signal_events) = SignalingClient::new(signaling_addr, &my_id, &auth_token);
 
     let (transport, mut transport_events) = Transport::new(
         &my_id,
@@ -124,13 +125,13 @@ async fn run_host(signaling_addr: &str, peer_id: Option<String>) -> Result<()> {
                     if frame.dirty_rects.is_empty() {
                         continue;
                     }
-                    match encoder.encode(&frame.data) {
+                    match encoder.encode(&frame.data, frame.width as u32, frame.height as u32) {
                         Ok(packets) => {
                             for pkt in &packets {
                                 let msg = ChannelMessage::VideoFrame {
                                     width: frame.width as u32,
                                     height: frame.height as u32,
-                                    codec: if pkt.codec == "jpeg" { 0 } else { 1 },
+                                    codec: if pkt.codec == "webp" { 2 } else if pkt.codec == "jpeg" { 0 } else { 1 },
                                     data: pkt.data.clone(),
                                 };
                                 if let Some(ref session) = crypto_session {
@@ -170,7 +171,8 @@ async fn run_client(
 
     tracing::info!("CHRONODESK client starting as: {my_id}");
 
-    let (signaling, mut signal_events) = SignalingClient::new(signaling_addr, &my_id);
+    let auth_token = chronodesk::ffi::compute_auth_token(&my_id);
+    let (signaling, mut signal_events) = SignalingClient::new(signaling_addr, &my_id, &auth_token);
 
     let (mut transport, mut transport_events) = Transport::new(
         &my_id,
