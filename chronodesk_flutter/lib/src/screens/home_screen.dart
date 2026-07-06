@@ -46,12 +46,13 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _turnUserController = TextEditingController();
   final TextEditingController _turnPassController = TextEditingController();
   final TextEditingController _downloadDirController = TextEditingController();
+  final TransformationController _transformController = TransformationController();
 
   @override
   void initState() {
     super.initState();
     _signalingAddr = native.getConfig('signaling_addr');
-    if (_signalingAddr.isEmpty) _signalingAddr = '144.24.201.196:21116';
+    if (_signalingAddr.isEmpty) _signalingAddr = '82.70.239.217:21116';
     _addrController.text = _signalingAddr;
     native.chronodeskInit();
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -76,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _turnUserController.dispose();
     _turnPassController.dispose();
     _downloadDirController.dispose();
+    _transformController.dispose();
     super.dispose();
   }
 
@@ -972,15 +974,30 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList();
   }
 
+  Offset _viewportToImage(Offset viewportPos) {
+    final matrix = _transformController.value;
+    final inv = Matrix4.inverted(matrix);
+    final transformed = MatrixUtils.transformPoint(inv, viewportPos);
+    return transformed;
+  }
+
   void _onPointerMove(PointerMoveEvent e) {
     if (_frameW <= 0 || _frameH <= 0) return;
+    final img = _viewportToImage(e.localPosition);
     native.chronodeskSendInputMove(
-      e.localPosition.dx.toInt().clamp(0, _frameW - 1),
-      e.localPosition.dy.toInt().clamp(0, _frameH - 1),
+      img.dx.round().clamp(0, _frameW - 1),
+      img.dy.round().clamp(0, _frameH - 1),
     );
   }
 
   void _onPointerDown(PointerDownEvent e) {
+    if (_frameW > 0 && _frameH > 0) {
+      final img = _viewportToImage(e.localPosition);
+      native.chronodeskSendInputMove(
+        img.dx.round().clamp(0, _frameW - 1),
+        img.dy.round().clamp(0, _frameH - 1),
+      );
+    }
     native.chronodeskSendInputClick(1, true);
   }
 
@@ -1084,19 +1101,19 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           Expanded(
-            child: InteractiveViewer(
-              child: Center(
+            child: Listener(
+              onPointerMove: _onPointerMove,
+              onPointerDown: _onPointerDown,
+              onPointerUp: _onPointerUp,
+              child: InteractiveViewer(
+                transformationController: _transformController,
+                constrained: false,
                 child: _frameImage != null
-                    ? Listener(
-                        onPointerMove: _onPointerMove,
-                        onPointerDown: _onPointerDown,
-                        onPointerUp: _onPointerUp,
-                        child: RawImage(
-                          image: _frameImage,
-                          fit: BoxFit.contain,
-                          width: _frameW.toDouble(),
-                          height: _frameH.toDouble(),
-                        ),
+                    ? RawImage(
+                        image: _frameImage,
+                        fit: BoxFit.contain,
+                        width: _frameW.toDouble(),
+                        height: _frameH.toDouble(),
                       )
                     : const CircularProgressIndicator(),
               ),

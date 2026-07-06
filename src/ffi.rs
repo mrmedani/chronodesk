@@ -166,7 +166,7 @@ fn get_signaling_addr() -> String {
     config
         .get("signaling_addr")
         .and_then(|v| v.as_str())
-        .unwrap_or("144.24.201.196:21116")
+        .unwrap_or("82.70.239.217:21116")
         .to_string()
 }
 
