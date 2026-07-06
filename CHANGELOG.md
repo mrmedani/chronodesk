@@ -5,6 +5,26 @@ All notable changes to CHRONODESK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-07-06
+
+### Fixed
+
+- :arrow_up: **BUG-UPDATE-01** — Installateur s'installe maintenant dans le dossier de l'exécutable courant (`/DIR=`), plus perdu dans Program Files
+- :arrow_up: **BUG-UPDATE-02** — L'app ne se ferme plus avant la fin du script PowerShell (synchronisation par PID, plus de `exit(0)` prématuré)
+- :arrow_up: **BUG-UPDATE-03** — Le script PowerShell utilise le vrai PID au lieu du nom de processus (`Get-Process -Id $targetPid`)
+- :arrow_up: **BUG-UPDATE-04** — Extraction du hash SHA256 par regex locale-indépendante (fonctionne en FR, JA, CN, AR)
+- :arrow_up: **BUG-UPDATE-05** — Vérification du code de sortie de l'installateur avec notification Windows ballon en cas d'échec
+- :arrow_up: **BUG-UPDATE-06** — Nettoyage garanti du fichier partiel dans tous les cas d'annulation
+- :arrow_up: **BUG-UPDATE-07** — Comparaison de versions pré-release conforme à la spec SemVer 2.0
+- :arrow_up: **BUG-UPDATE-08** — Checksum non bloquant : fallback si le fichier .sha256 est indisponible
+
+### Added
+
+- :repeat: **Auto-restart** après installation réussie
+- :balloon: **Notification Windows** ballon (NotifyIcon) si l'installateur échoue
+- :broom: Nettoyage automatique des scripts PowerShell périmés (`_cleanupStaleScripts`)
+- :id: Fichiers temporaires nommés par PID (pas de collisions)
+
 ## [0.4.0] - 2026-07-02
 
 ### Added

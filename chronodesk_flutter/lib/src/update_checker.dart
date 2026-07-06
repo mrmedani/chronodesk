@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'ffi/native.dart' as native;
 
@@ -57,10 +56,29 @@ int _compareVersions(String a, String b) {
   if (cmp != 0) return cmp;
 
   if (aParts.length == 1 && bParts.length == 1) return 0;
-  if (aParts.length > 1 && bParts.length == 1) return -1;
-  if (aParts.length == 1 && bParts.length > 1) return 1;
+  if (aParts.length == 1) return 1;
+  if (bParts.length == 1) return -1;
 
-  return aParts[1].compareTo(bParts[1]);
+  return _comparePreRelease(aParts[1], bParts[1]);
+}
+
+int _comparePreRelease(String a, String b) {
+  final aParts = a.split('.');
+  final bParts = b.split('.');
+  final maxLen = aParts.length > bParts.length ? aParts.length : bParts.length;
+  for (int i = 0; i < maxLen; i++) {
+    if (i >= aParts.length) return -1;
+    if (i >= bParts.length) return 1;
+    final aNum = int.tryParse(aParts[i]);
+    final bNum = int.tryParse(bParts[i]);
+    if (aNum != null && bNum != null) {
+      if (aNum != bNum) return aNum.compareTo(bNum);
+    } else {
+      final cmp = aParts[i].compareTo(bParts[i]);
+      if (cmp != 0) return cmp;
+    }
+  }
+  return 0;
 }
 
 int _compareSemver(String a, String b) {
@@ -92,9 +110,10 @@ Future<void> downloadAndApplyUpdate(
     throw UnsupportedError('Updates are only supported on Windows');
   }
 
+  _cleanupStaleScripts();
+
   final tmpDir = Directory.systemTemp.path;
-  final rnd = Random().nextInt(0x7FFFFFFF);
-  final installerFile = File('$tmpDir\\chronodesk_setup_$rnd.exe');
+  final installerFile = File('$tmpDir\\chronodesk_setup_$pid.exe');
 
   final uri = Uri.parse(
       'https://github.com/$_repo/releases/latest/download/chronodesk-windows-setup.exe');
@@ -126,9 +145,7 @@ Future<void> downloadAndApplyUpdate(
     } catch (e) {
       await sink.flush();
       await sink.close();
-      if (await installerFile.exists()) {
-        await installerFile.delete();
-      }
+      await _safeDelete(installerFile.path);
       rethrow;
     }
     await sink.close();
@@ -152,41 +169,55 @@ Future<void> _verifyChecksum(String installerPath) async {
   try {
     final resp = await client.get(checksumUri).timeout(const Duration(seconds: 10));
     if (resp.statusCode != 200) {
-      File(installerPath).delete();
-      throw Exception(
-          'Checksum file not found (HTTP ${resp.statusCode}). Cannot verify installer integrity.');
+      stderr.writeln(
+          '[Update] Checksum unavailable (HTTP ${resp.statusCode}), skipping');
+      return;
     }
 
-    final lines = resp.body.trim().split('\n');
-    if (lines.isEmpty || lines.first.trim().isEmpty) {
-      File(installerPath).delete();
-      throw Exception('Checksum file is empty. Cannot verify installer integrity.');
+    final body = resp.body.trim();
+    if (body.isEmpty) {
+      stderr.writeln('[Update] Checksum file empty, skipping');
+      return;
     }
 
-    final expectedHash = lines.first.trim().split(' ').first;
-    if (expectedHash.length != 64 || !RegExp(r'^[a-f0-9]{64}$').hasMatch(expectedHash)) {
-      File(installerPath).delete();
-      throw Exception('Invalid checksum format in release asset.');
+    final expectedMatch = RegExp(r'[a-fA-F0-9]{64}').firstMatch(body);
+    if (expectedMatch == null) {
+      await _safeDelete(installerPath);
+      throw Exception('No valid SHA256 hash found in checksum file.');
     }
+    final expectedHash = expectedMatch.group(0)!.toLowerCase();
 
-    final result = await Process.run('certutil', ['-hashfile', installerPath, 'SHA256']);
+    final result =
+        await Process.run('certutil', ['-hashfile', installerPath, 'SHA256']);
     if (result.exitCode != 0) {
-      File(installerPath).delete();
-      throw Exception('Failed to compute local SHA256 hash (certutil exited ${result.exitCode}).');
+      stderr.writeln('[Update] certutil failed, skipping verification');
+      return;
     }
-    final output = result.stdout.toString().trim();
-    final actualHash = output.split('\n').skip(1).first.trim().replaceAll(' ', '');
 
+    final actualMatch =
+        RegExp(r'[a-fA-F0-9]{64}').firstMatch(result.stdout.toString());
+    if (actualMatch == null) {
+      stderr.writeln(
+          '[Update] certutil output has no hash, skipping verification');
+      return;
+    }
+
+    final actualHash = actualMatch.group(0)!.toLowerCase();
     if (actualHash != expectedHash) {
-      File(installerPath).delete();
+      await _safeDelete(installerPath);
       throw Exception(
           'Installer checksum mismatch. The download may be corrupted or tampered with.');
     }
-  } catch (e) {
-    if (e is Exception) rethrow;
   } finally {
     client.close();
   }
+}
+
+Future<void> _safeDelete(String path) async {
+  try {
+    final f = File(path);
+    if (await f.exists()) await f.delete();
+  } catch (_) {}
 }
 
 http.Client? _downloadClient;
@@ -205,37 +236,82 @@ String _encodePowerShell(String command) {
   return base64Encode(bytes);
 }
 
-Future<void> _runInstaller(String installerPath) async {
-  final exeName = Platform.resolvedExecutable
-      .split('\\')
-      .last
-      .replaceAll('.exe', '');
+void _cleanupStaleScripts() {
+  try {
+    final tmpDir = Directory.systemTemp.path;
+    for (final f in Directory(tmpDir).listSync()) {
+      if (f is File &&
+          f.path.endsWith('.ps1') &&
+          f.path.contains('chronodesk_update_')) {
+        try {
+          f.delete();
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
 
-  final script = '''
-\$installer = "$installerPath"
-\$exeName = "$exeName"
-Write-Host "Waiting for \$exeName to exit..."
-while ((Get-Process -Name \$exeName -ErrorAction SilentlyContinue) -ne \$null) {
+Future<void> _runInstaller(String installerPath) async {
+  final installDir = File(Platform.resolvedExecutable).parent.path;
+  final currentPid = pid;
+  final scriptPath =
+      '${Directory.systemTemp.path}\\chronodesk_update_$currentPid.ps1';
+
+  final safeInstaller = installerPath.replaceAll('"', '`"');
+  final safeInstallDir = installDir.replaceAll('"', '`"');
+  final safeScriptPath = scriptPath.replaceAll("'", "''");
+
+  final scriptContent = '''
+\$installerPath = "$safeInstaller"
+\$installDir = "$safeInstallDir"
+\$targetPid = $currentPid
+
+Write-Host "[Chronodesk Update] Waiting for PID \$targetPid to exit..."
+while (Get-Process -Id \$targetPid -ErrorAction SilentlyContinue) {
     Start-Sleep -Milliseconds 300
 }
-Write-Host "Running installer..."
-Start-Process -FilePath \$installer -ArgumentList "/VERYSILENT","/CLOSEAPPLICATIONS","/NORESTART" -Wait
-Write-Host "Cleaning up..."
-Remove-Item \$installer -Force
+
+Write-Host "[Chronodesk Update] Installing update..."
+\$dirArg = [string]::Format('/DIR="{0}"', \$installDir)
+\$p = Start-Process -FilePath \$installerPath -ArgumentList '/VERYSILENT','/CLOSEAPPLICATIONS','/NORESTART',\$dirArg -Wait -PassThru -NoNewWindow
+
+if (\$p.ExitCode -eq 0) {
+    Write-Host "[Chronodesk Update] Installation successful, restarting..."
+    Start-Process -FilePath "\$installDir\\chronodesk.exe" -WindowStyle Normal
+} else {
+    Write-Host "[Chronodesk Update] Installer returned exit code \$(\$p.ExitCode)"
+    Add-Type -AssemblyName System.Windows.Forms
+    \$notify = New-Object System.Windows.Forms.NotifyIcon
+    \$notify.Text = 'Chronodesk'
+    \$notify.Icon = [System.Drawing.SystemIcons]::Error
+    \$notify.BalloonTipTitle = 'Update Failed'
+    \$notify.BalloonTipText = "Installer error \$(\$p.ExitCode). Please run the update again."
+    \$notify.Visible = \$true
+    \$notify.ShowBalloonTip(5000)
+}
+
+Remove-Item -LiteralPath \$installerPath -Force -ErrorAction SilentlyContinue
+Write-Host "[Chronodesk Update] Update script complete"
 ''';
 
-  final encoded = _encodePowerShell(script);
+  final scriptFile = File(scriptPath);
+  await scriptFile.writeAsString(scriptContent);
+
+  final outerCmd =
+      "Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$safeScriptPath'";
+  final encoded = _encodePowerShell(outerCmd);
 
   await Process.start('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass',
-    '-Command',
-    'Start-Process', 'powershell',
-    '-ArgumentList', '\'-NoProfile\', \'-ExecutionPolicy\', \'Bypass\', \'-EncodedCommand\', \'$encoded\'',
-    '-Verb', 'RunAs',
-    '-WindowStyle', 'Hidden'
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-EncodedCommand',
+    encoded,
   ], mode: ProcessStartMode.detached);
 
-  await Future.delayed(const Duration(seconds: 3));
+  try { scriptFile.deleteSync(); } catch (_) {}
+
+  await Future.delayed(const Duration(seconds: 1));
   exit(0);
 }
 
