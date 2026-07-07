@@ -347,6 +347,7 @@ async fn create_and_send_offer(
     dc_store: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
     event_tx: &mpsc::UnboundedSender<TransportEvent>,
 ) -> Result<()> {
+    crate::logger::write_log(&format!("create_and_send_offer: creating data channel to {target}"));
     let dc = pc.create_data_channel("chronodesk", None).await?;
     *dc_store.lock().await = Some(dc.clone());
 
@@ -360,11 +361,15 @@ async fn create_and_send_offer(
         })
     }));
 
+    crate::logger::write_log("create_and_send_offer: creating offer");
     let offer = pc.create_offer(None).await?;
+    crate::logger::write_log("create_and_send_offer: setting local description");
     pc.set_local_description(offer.clone()).await?;
+    crate::logger::write_log("create_and_send_offer: getting local description");
 
     if let Some(desc) = pc.local_description().await {
         if let Some(ref sig_tx) = signaling_tx {
+            crate::logger::write_log(&format!("create_and_send_offer: sending offer to {target} via signaling"));
             if sig_tx
                 .send(SignalingCommand::SendOffer {
                     to: target.to_string(),
@@ -372,21 +377,27 @@ async fn create_and_send_offer(
                 })
                 .is_err()
             {
+                crate::logger::write_log("create_and_send_offer: signaling send FAILED");
                 let _ = event_tx.send(TransportEvent::Error {
                     msg: "signaling channel closed, offer not sent".to_string(),
                 });
+            } else {
+                crate::logger::write_log("create_and_send_offer: offer sent successfully");
             }
         } else {
+            crate::logger::write_log("create_and_send_offer: no signaling_tx");
             let _ = event_tx.send(TransportEvent::Error {
                 msg: "no signaling_tx, offer not sent".to_string(),
             });
         }
     } else {
+        crate::logger::write_log("create_and_send_offer: no local description");
         let _ = event_tx.send(TransportEvent::Error {
             msg: "no local description".to_string(),
         });
     }
 
+    crate::logger::write_log("create_and_send_offer: done");
     Ok(())
 }
 
