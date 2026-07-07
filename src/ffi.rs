@@ -96,7 +96,8 @@ fn load_or_create_id() -> String {
     id
 }
 
-const DEFAULT_AUTH_SECRET: &str = "bf2bbc8bc62f3a0df8afc8f303b56c7b36731e4ff40016c0db788bc6ff31cd4a";
+const DEFAULT_AUTH_SECRET: &str =
+    "bf2bbc8bc62f3a0df8afc8f303b56c7b36731e4ff40016c0db788bc6ff31cd4a";
 
 fn get_auth_secret() -> String {
     let config = load_config();
