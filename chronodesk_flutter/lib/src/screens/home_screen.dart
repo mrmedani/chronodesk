@@ -403,7 +403,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showSettings() {
     _addrController.text = native.getConfig('signaling_addr');
-    if (_addrController.text.isEmpty) _addrController.text = '144.24.201.196:21116';
+    if (_addrController.text.isEmpty) _addrController.text = '82.70.239.217:21116';
     _turnUrlController.text = native.getConfig('turn_url');
     _turnUserController.text = native.getConfig('turn_username');
     _turnPassController.text = native.getConfig('turn_password');

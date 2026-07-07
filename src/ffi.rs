@@ -161,13 +161,22 @@ fn save_config(config: &serde_json::Value) {
     }
 }
 
+const SIGNALING_ADDR: &str = "82.70.239.217:21116";
+const OLD_SIGNALING_ADDR: &str = "144.24.201.196:21116";
+
 fn get_signaling_addr() -> String {
-    let config = load_config();
-    config
+    let mut config = load_config();
+    let addr = config
         .get("signaling_addr")
         .and_then(|v| v.as_str())
-        .unwrap_or("82.70.239.217:21116")
-        .to_string()
+        .unwrap_or(SIGNALING_ADDR)
+        .to_string();
+    if addr == OLD_SIGNALING_ADDR {
+        config["signaling_addr"] = serde_json::json!(SIGNALING_ADDR);
+        save_config(&config);
+        return SIGNALING_ADDR.to_string();
+    }
+    addr
 }
 
 const DEFAULT_TURN_URL: &str = "turn:82.70.239.217:3478";
@@ -296,7 +305,7 @@ async fn run_loop(signaling_addr: &str, my_id: &str) -> Result<(), anyhow::Error
 
     let stun_addr = format!(
         "stun:{}",
-        signaling_addr.split(':').next().unwrap_or("144.24.201.196")
+        signaling_addr.split(':').next().unwrap_or("82.70.239.217")
     );
 
     let turn_cfg = get_turn_config();
