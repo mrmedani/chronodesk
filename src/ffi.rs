@@ -170,28 +170,35 @@ fn get_signaling_addr() -> String {
         .to_string()
 }
 
+const DEFAULT_TURN_URL: &str = "turn:82.70.239.217:3478";
+const DEFAULT_TURN_USER: &str = "chronodesk";
+
 fn get_turn_config() -> Option<crate::network::transport::TurnConfig> {
     let config = load_config();
     let url = config
         .get("turn_url")
         .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_TURN_URL)
+        .to_string();
+    let username = config
+        .get("turn_username")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_TURN_USER)
+        .to_string();
+    let credential = config
+        .get("turn_password")
+        .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    if url.is_empty() {
+    if credential.is_empty() {
         return None;
     }
     Some(crate::network::transport::TurnConfig {
         url,
-        username: config
-            .get("turn_username")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        credential: config
-            .get("turn_password")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
+        username,
+        credential,
     })
 }
 
@@ -229,6 +236,14 @@ pub extern "C" fn chronodesk_init() {
     });
 }
 
+fn config_default(key: &str) -> &str {
+    match key {
+        "turn_url" => DEFAULT_TURN_URL,
+        "turn_username" => DEFAULT_TURN_USER,
+        _ => "",
+    }
+}
+
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn chronodesk_get_config(key: *const std::ffi::c_char) -> *mut std::ffi::c_char {
@@ -237,7 +252,12 @@ pub extern "C" fn chronodesk_get_config(key: *const std::ffi::c_char) -> *mut st
     }
     let key = unsafe { CStr::from_ptr(key) }.to_str().unwrap_or("");
     let config = load_config();
-    let val = config.get(key).and_then(|v| v.as_str()).unwrap_or("");
+    let val = config
+        .get(key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| Some(config_default(key)))
+        .unwrap_or("");
     CString::new(val).unwrap_or_default().into_raw()
 }
 
