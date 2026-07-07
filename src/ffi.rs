@@ -96,26 +96,20 @@ fn load_or_create_id() -> String {
     id
 }
 
-fn get_or_create_auth_secret() -> String {
-    let dir = config_dir();
-    let secret_file = dir.join("auth_secret");
-    if let Ok(s) = std::fs::read_to_string(&secret_file) {
-        let s = s.trim().to_string();
-        if s.len() >= 16 {
-            return s;
+const DEFAULT_AUTH_SECRET: &str = "bf2bbc8bc62f3a0df8afc8f303b56c7b36731e4ff40016c0db788bc6ff31cd4a";
+
+fn get_auth_secret() -> String {
+    let config = load_config();
+    if let Some(s) = config.get("auth_secret").and_then(|v| v.as_str()) {
+        if !s.is_empty() {
+            return s.to_string();
         }
     }
-    use ring::rand::SecureRandom;
-    let rng = ring::rand::SystemRandom::new();
-    let mut bytes = vec![0u8; 32];
-    let _ = rng.fill(&mut bytes);
-    let secret: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-    let _ = std::fs::write(&secret_file, &secret);
-    secret
+    DEFAULT_AUTH_SECRET.to_string()
 }
 
 pub fn compute_auth_token(peer_id: &str) -> String {
-    let secret = get_or_create_auth_secret();
+    let secret = get_auth_secret();
     let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
     let tag = hmac::sign(&key, peer_id.as_bytes());
     tag.as_ref().iter().map(|b| format!("{:02x}", b)).collect()
