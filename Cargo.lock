@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "chronodesk"
-version = "0.4.2"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "arboard",

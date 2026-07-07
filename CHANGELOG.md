@@ -5,6 +5,16 @@ All notable changes to CHRONODESK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-07-07
+
+### Fixed
+
+- **Connexion freeze** — Ajout d'un timeout de 15s sur `create_and_send_offer` pour éviter que le transport ne bloque indéfiniment sur la négociation ICE
+- **Disconnect bloquant** — Ajout d'un timeout de 5s sur `pc.close()` pour que la déconnexion ne pende jamais
+- **Erreur signaling muette** — Propagation des échecs d'envoi `SignalingCommand::SendOffer` en `TransportEvent::Error` visibles dans l'UI
+- **État "connecting" persistant** — Le handler `error` côté Flutter réinitialise maintenant `_connecting = false` et annule le timer
+- **Boucle de polling infinie** — Ajout d'un garde-fou de 100 événements max par tick de polling pour ne jamais bloquer l'isolate Dart
+
 ## [0.4.4] - 2026-07-06
 
 ### Fixed

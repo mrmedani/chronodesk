@@ -82,7 +82,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _pollEvents() {
-    while (true) {
+    var guard = 100;
+    while (guard > 0) {
+      guard--;
       final ev = native.pollEvent();
       if (ev == null) break;
       _handleEvent(ev);
@@ -132,7 +134,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _targetFps = map['fps'] as int? ?? 30;
           });
         case 'error':
-          _exportLogs().catchError((_) {});
+          _connectTimer?.cancel();
+          setState(() => _connecting = false);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Error: ${map['msg'] ?? ''}')),

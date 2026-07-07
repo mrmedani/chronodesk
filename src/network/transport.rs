@@ -167,20 +167,31 @@ impl Transport {
                 match cmd {
                     SignalCommand::CreateOffer(target) => {
                         *current_peer_for_spawn.lock().await = Some(target.clone());
-                        match create_and_send_offer(
-                            &pc_clone,
-                            &target,
-                            &signal_tx_for_spawn,
-                            &signaling_tx_for_spawn,
-                            &dc_for_spawn,
-                            &event_tx_for_signal,
+                        const OFFER_TIMEOUT_SECS: u64 = 15;
+                        match tokio::time::timeout(
+                            tokio::time::Duration::from_secs(OFFER_TIMEOUT_SECS),
+                            create_and_send_offer(
+                                &pc_clone,
+                                &target,
+                                &signal_tx_for_spawn,
+                                &signaling_tx_for_spawn,
+                                &dc_for_spawn,
+                                &event_tx_for_signal,
+                            ),
                         )
                         .await
                         {
-                            Ok(_) => {}
-                            Err(e) => {
+                            Ok(Ok(_)) => {}
+                            Ok(Err(e)) => {
                                 let _ = event_tx_for_signal
                                     .send(TransportEvent::Error { msg: e.to_string() });
+                            }
+                            Err(_) => {
+                                let _ = event_tx_for_signal.send(TransportEvent::Error {
+                                    msg: format!(
+                                        "CreateOffer timed out after {OFFER_TIMEOUT_SECS}s"
+                                    ),
+                                });
                             }
                         }
                     }
@@ -242,7 +253,18 @@ impl Transport {
                         }
                     }
                     SignalCommand::Disconnect => {
-                        let _ = pc_clone.close().await;
+                        const CLOSE_TIMEOUT_SECS: u64 = 5;
+                        if tokio::time::timeout(
+                            tokio::time::Duration::from_secs(CLOSE_TIMEOUT_SECS),
+                            pc_clone.close(),
+                        )
+                        .await
+                        .is_err()
+                        {
+                            let _ = event_tx_for_signal.send(TransportEvent::Error {
+                                msg: "pc.close() timed out".to_string(),
+                            });
+                        }
                         break;
                     }
                 }
@@ -343,11 +365,26 @@ async fn create_and_send_offer(
 
     if let Some(desc) = pc.local_description().await {
         if let Some(ref sig_tx) = signaling_tx {
-            let _ = sig_tx.send(SignalingCommand::SendOffer {
-                to: target.to_string(),
-                sdp: desc.sdp,
+            if sig_tx
+                .send(SignalingCommand::SendOffer {
+                    to: target.to_string(),
+                    sdp: desc.sdp,
+                })
+                .is_err()
+            {
+                let _ = event_tx.send(TransportEvent::Error {
+                    msg: "signaling channel closed, offer not sent".to_string(),
+                });
+            }
+        } else {
+            let _ = event_tx.send(TransportEvent::Error {
+                msg: "no signaling_tx, offer not sent".to_string(),
             });
         }
+    } else {
+        let _ = event_tx.send(TransportEvent::Error {
+            msg: "no local description".to_string(),
+        });
     }
 
     Ok(())
