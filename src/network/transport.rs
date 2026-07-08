@@ -163,10 +163,12 @@ impl Transport {
         let signaling_tx_for_spawn = signaling_tx.clone();
 
         tokio::spawn(async move {
+            eprintln!("transport handler: started");
             crate::logger::write_log("transport handler: started");
             while let Some(cmd) = signal_rx.recv().await {
                 match cmd {
                     SignalCommand::CreateOffer(target) => {
+                        eprintln!("transport handler: received CreateOffer for {target}");
                         crate::logger::write_log(&format!(
                             "transport handler: received CreateOffer for {target}"
                         ));
@@ -351,6 +353,7 @@ async fn create_and_send_offer(
     dc_store: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
     event_tx: &mpsc::UnboundedSender<TransportEvent>,
 ) -> Result<()> {
+    eprintln!("create_and_send_offer: start for {target}");
     crate::logger::write_log(&format!(
         "create_and_send_offer: creating data channel to {target}"
     ));
@@ -367,14 +370,18 @@ async fn create_and_send_offer(
         })
     }));
 
+    eprintln!("create_and_send_offer: creating offer");
     crate::logger::write_log("create_and_send_offer: creating offer");
     let offer = pc.create_offer(None).await?;
+    eprintln!("create_and_send_offer: after create_offer");
     crate::logger::write_log("create_and_send_offer: setting local description");
     pc.set_local_description(offer.clone()).await?;
     crate::logger::write_log("create_and_send_offer: getting local description");
+    eprintln!("create_and_send_offer: after set_local_description");
 
     if let Some(desc) = pc.local_description().await {
         if let Some(ref sig_tx) = signaling_tx {
+            eprintln!("create_and_send_offer: sending offer to {target} via signaling");
             crate::logger::write_log(&format!(
                 "create_and_send_offer: sending offer to {target} via signaling"
             ));
