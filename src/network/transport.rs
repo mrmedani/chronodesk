@@ -163,9 +163,13 @@ impl Transport {
         let signaling_tx_for_spawn = signaling_tx.clone();
 
         tokio::spawn(async move {
+            crate::logger::write_log("transport handler: started");
             while let Some(cmd) = signal_rx.recv().await {
                 match cmd {
                     SignalCommand::CreateOffer(target) => {
+                        crate::logger::write_log(&format!(
+                            "transport handler: received CreateOffer for {target}"
+                        ));
                         *current_peer_for_spawn.lock().await = Some(target.clone());
                         const OFFER_TIMEOUT_SECS: u64 = 15;
                         match tokio::time::timeout(
@@ -347,7 +351,9 @@ async fn create_and_send_offer(
     dc_store: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
     event_tx: &mpsc::UnboundedSender<TransportEvent>,
 ) -> Result<()> {
-    crate::logger::write_log(&format!("create_and_send_offer: creating data channel to {target}"));
+    crate::logger::write_log(&format!(
+        "create_and_send_offer: creating data channel to {target}"
+    ));
     let dc = pc.create_data_channel("chronodesk", None).await?;
     *dc_store.lock().await = Some(dc.clone());
 
@@ -369,7 +375,9 @@ async fn create_and_send_offer(
 
     if let Some(desc) = pc.local_description().await {
         if let Some(ref sig_tx) = signaling_tx {
-            crate::logger::write_log(&format!("create_and_send_offer: sending offer to {target} via signaling"));
+            crate::logger::write_log(&format!(
+                "create_and_send_offer: sending offer to {target} via signaling"
+            ));
             if sig_tx
                 .send(SignalingCommand::SendOffer {
                     to: target.to_string(),
